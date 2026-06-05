@@ -1,6 +1,8 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useState, useRef, useEffect } from 'react'
 import { Loader2, RotateCw } from 'lucide-react'
+import { FaDiscord } from 'react-icons/fa'
+import { buttonVariants } from '@/components/ui/button'
 import { LANGUAGES, LANGUAGE_MAP } from '@/lib/languages'
 import { rpc } from '@/lib/rpc'
 import { splitSegments, buildSourceRanges } from '@/lib/segments'
@@ -10,8 +12,8 @@ export const Route = createFileRoute('/')({
 })
 
 const EXTENSION_LINK =
-  'https://chromewebstore.google.com/detail/imp-translate/iflbbkmmkleehfnmpjpilibfpdahkgem'
-const DISCORD_LINK = 'https://discord.gg/yNbSTGvKmR'
+  'https://chromewebstore.google.com/detail/imp-translate/nmbcckfgobecechfdamananmfnnjbbbd'
+const DISCORD_LINK = 'https://discord.gg/gFhKUthc88'
 const STORAGE_KEY = 'imp-translate-target-lang'
 
 function getDefaultTargetLang(): string {
@@ -59,6 +61,7 @@ function HomePage() {
   const translateIdRef = useRef(0)
 
   function translateSegments(text: string, to: string) {
+    if (!extensionInstalled) return
     const sources = splitSegments(text)
     if (sources.length === 0) {
       setSegments([])
@@ -197,21 +200,24 @@ function HomePage() {
           <h1 className="text-lg font-semibold">Imp Translate</h1>
         </div>
         <div className="flex items-center gap-3">
-          <a
-            href={EXTENSION_LINK}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm text-muted-foreground hover:text-foreground"
-          >
-            Install Extension
-          </a>
+          {!extensionInstalled && (
+            <a
+              href={EXTENSION_LINK}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={buttonVariants()}
+            >
+              Install Extension
+            </a>
+          )}
           <a
             href={DISCORD_LINK}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-sm text-muted-foreground hover:text-foreground"
+            className={buttonVariants({ variant: 'secondary' })}
           >
-            Discord
+            <FaDiscord className="size-4" />
+            <span className="hidden md:inline">Discord</span>
           </a>
         </div>
       </header>
@@ -234,7 +240,7 @@ function HomePage() {
 
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">Auto Detect</span>
-          <span className="text-muted-foreground">→</span>
+          <span className="text-muted-foreground">&rarr;</span>
           <select
             value={targetLang}
             onChange={(e) => handleTargetLangChange(e.target.value)}
@@ -267,7 +273,21 @@ function HomePage() {
 
           {/* Target: pre-wrap block mirroring source structure */}
           <div className="whitespace-pre-wrap break-words rounded-lg border border-input bg-muted/30 p-4 text-base md:min-h-[300px]">
-            {segments.length === 0 ? (
+            {!extensionInstalled && sourceText.trim() ? (
+              <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
+                <p className="text-sm text-muted-foreground">
+                  Install the extension to translate
+                </p>
+                <a
+                  href={EXTENSION_LINK}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={buttonVariants()}
+                >
+                  Install Extension
+                </a>
+              </div>
+            ) : segments.length === 0 ? (
               <span className="text-muted-foreground">Translation</span>
             ) : (
               segments.map((seg, i) => (
