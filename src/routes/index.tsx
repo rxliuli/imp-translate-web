@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useState, useRef, useEffect } from 'react'
-import { Loader2, RotateCw } from 'lucide-react'
+import { Check, Copy, Loader2, RotateCw } from 'lucide-react'
 import { FaDiscord } from 'react-icons/fa'
 import { buttonVariants } from '@/components/ui/button'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
@@ -51,6 +51,26 @@ interface Segment {
   source: string
   translated: string
   status: 'pending' | 'done' | 'error'
+}
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  function handleCopy() {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+  return (
+    <div className="flex justify-end border-t border-input px-2 py-1.5">
+      <button
+        onClick={handleCopy}
+        className="cursor-pointer rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+      >
+        {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+      </button>
+    </div>
+  )
 }
 
 function HomePage() {
@@ -224,7 +244,7 @@ function HomePage() {
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-4 p-4 md:p-6">
+      <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-4 p-4 md:p-6">
         {!extensionInstalled && (
           <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800 dark:border-yellow-900 dark:bg-yellow-950 dark:text-yellow-200">
             Imp Translate extension is not detected.{' '}
@@ -255,17 +275,17 @@ function HomePage() {
           </NativeSelect>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
           {/* Source: textarea + highlight overlay */}
-          <div className="relative">
+          <div className="relative flex flex-col rounded-lg border border-input md:min-h-[300px]">
             <div
               aria-hidden
-              className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words rounded-lg border border-transparent p-4 text-base"
+              className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words p-4 text-base"
             >
               {renderSourceOverlay()}
             </div>
             <Textarea
-              className="resize-none bg-transparent p-4 text-base text-transparent caret-foreground md:min-h-[300px] md:text-base"
+              className="flex-1 resize-none border-none bg-transparent p-4 text-base text-transparent caret-foreground shadow-none ring-0 focus-visible:border-none focus-visible:ring-0 md:text-base"
               placeholder="Enter text to translate..."
               value={sourceText}
               onChange={(e) => handleSourceChange(e.target.value)}
@@ -273,53 +293,62 @@ function HomePage() {
           </div>
 
           {/* Target: pre-wrap block mirroring source structure */}
-          <div className="whitespace-pre-wrap break-words rounded-lg border border-input bg-muted/30 p-4 text-base md:min-h-[300px]">
-            {!extensionInstalled && sourceText.trim() ? (
-              <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
-                <p className="text-sm text-muted-foreground">
-                  Install the extension to translate
-                </p>
-                <a
-                  href={EXTENSION_LINK}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={buttonVariants()}
-                >
-                  Install Extension
-                </a>
-              </div>
-            ) : segments.length === 0 ? (
-              <span className="text-muted-foreground">Translation</span>
-            ) : (
-              segments.map((seg, i) => (
-                <span key={i}>
-                  <span
-                    className={`rounded transition-colors ${
-                      hoveredIndex === i
-                        ? 'bg-[#d3e3fd] dark:bg-[#2a3a50]'
-                        : 'hover:bg-[#d3e3fd]/50 dark:hover:bg-[#2a3a50]/50'
-                    }`}
-                    onMouseEnter={() => setHoveredIndex(i)}
-                    onMouseLeave={() => setHoveredIndex(null)}
+          <div className="relative flex flex-col rounded-lg border border-input bg-muted/30 md:min-h-[300px]">
+            <div className="flex-1 whitespace-pre-wrap break-words p-4 text-base">
+              {!extensionInstalled && sourceText.trim() ? (
+                <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    Install the extension to translate
+                  </p>
+                  <a
+                    href={EXTENSION_LINK}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={buttonVariants()}
                   >
-                    {seg.status === 'pending' ? (
-                      <Loader2 className="inline size-4 animate-spin text-muted-foreground" />
-                    ) : seg.status === 'error' ? (
-                      <span
-                        role="button"
-                        onClick={retryAllFailed}
-                        className="inline-flex cursor-pointer items-center gap-1 text-destructive hover:text-destructive/80"
-                      >
-                        Translation failed
-                        <RotateCw className="size-3" />
-                      </span>
-                    ) : (
-                      seg.translated
-                    )}
+                    Install Extension
+                  </a>
+                </div>
+              ) : segments.length === 0 ? (
+                <span className="text-muted-foreground">Translation</span>
+              ) : (
+                segments.map((seg, i) => (
+                  <span key={i}>
+                    <span
+                      className={`rounded transition-colors ${
+                        hoveredIndex === i
+                          ? 'bg-[#d3e3fd] dark:bg-[#2a3a50]'
+                          : 'hover:bg-[#d3e3fd]/50 dark:hover:bg-[#2a3a50]/50'
+                      }`}
+                      onMouseEnter={() => setHoveredIndex(i)}
+                      onMouseLeave={() => setHoveredIndex(null)}
+                    >
+                      {seg.status === 'pending' ? (
+                        <Loader2 className="inline size-4 animate-spin text-muted-foreground" />
+                      ) : seg.status === 'error' ? (
+                        <span
+                          role="button"
+                          onClick={retryAllFailed}
+                          className="inline-flex cursor-pointer items-center gap-1 text-destructive hover:text-destructive/80"
+                        >
+                          Translation failed
+                          <RotateCw className="size-3" />
+                        </span>
+                      ) : (
+                        seg.translated
+                      )}
+                    </span>
+                    {sourceRanges[i]?.separator}
                   </span>
-                  {sourceRanges[i]?.separator}
-                </span>
-              ))
+                ))
+              )}
+            </div>
+            {segments.some((s) => s.status === 'done') && (
+              <CopyButton
+                text={segments
+                  .map((s, i) => s.translated + (sourceRanges[i]?.separator ?? ''))
+                  .join('')}
+              />
             )}
           </div>
         </div>
