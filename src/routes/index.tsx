@@ -220,23 +220,13 @@ function HomePage() {
           <h1 className="text-lg font-semibold">Imp Translate</h1>
         </div>
         <div className="flex items-center gap-3">
-          {!extensionInstalled && (
-            <a
-              href={EXTENSION_LINK}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={buttonVariants()}
-            >
-              Install Extension
-            </a>
-          )}
           <a
             href={DISCORD_LINK}
             target="_blank"
             rel="noopener noreferrer"
             className={buttonVariants({ variant: 'secondary' })}
           >
-            <FaDiscord className="size-4" />
+            <FaDiscord className="size-4 text-[#5865F2]" />
             <span className="hidden md:inline">Discord</span>
           </a>
         </div>
