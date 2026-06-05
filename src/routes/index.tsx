@@ -3,6 +3,8 @@ import { useState, useRef, useEffect } from 'react'
 import { Loader2, RotateCw } from 'lucide-react'
 import { FaDiscord } from 'react-icons/fa'
 import { buttonVariants } from '@/components/ui/button'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { Textarea } from '@/components/ui/textarea'
 import { LANGUAGES, LANGUAGE_MAP } from '@/lib/languages'
 import { rpc } from '@/lib/rpc'
 import { splitSegments, buildSourceRanges } from '@/lib/segments'
@@ -241,17 +243,16 @@ function HomePage() {
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">Auto Detect</span>
           <span className="text-muted-foreground">&rarr;</span>
-          <select
+          <NativeSelect
             value={targetLang}
             onChange={(e) => handleTargetLangChange(e.target.value)}
-            className="rounded-md border border-input bg-background px-3 py-1.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
           >
             {LANGUAGES.map(([code, name]) => (
-              <option key={code} value={code}>
+              <NativeSelectOption key={code} value={code}>
                 {name}
-              </option>
+              </NativeSelectOption>
             ))}
-          </select>
+          </NativeSelect>
         </div>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -263,8 +264,8 @@ function HomePage() {
             >
               {renderSourceOverlay()}
             </div>
-            <textarea
-              className="w-full resize-none rounded-lg border border-input bg-transparent p-4 text-base text-transparent caret-foreground outline-none [field-sizing:content] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:min-h-[300px]"
+            <Textarea
+              className="resize-none bg-transparent p-4 text-base text-transparent caret-foreground md:min-h-[300px] md:text-base"
               placeholder="Enter text to translate..."
               value={sourceText}
               onChange={(e) => handleSourceChange(e.target.value)}
