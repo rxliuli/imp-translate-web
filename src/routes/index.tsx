@@ -62,14 +62,12 @@ function CopyButton({ text }: { text: string }) {
     })
   }
   return (
-    <div className="flex justify-end border-t border-input px-2 py-1.5">
-      <button
-        onClick={handleCopy}
-        className="cursor-pointer rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-      >
-        {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-      </button>
-    </div>
+    <button
+      onClick={handleCopy}
+      className="absolute top-2 right-2 cursor-pointer rounded-md bg-background/80 p-1.5 text-muted-foreground opacity-0 backdrop-blur-sm transition-opacity hover:text-foreground group-hover/target:opacity-100"
+    >
+      {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+    </button>
   )
 }
 
@@ -293,7 +291,7 @@ function HomePage() {
           </div>
 
           {/* Target: pre-wrap block mirroring source structure */}
-          <div className="relative flex flex-col rounded-lg border border-input bg-muted/30 md:min-h-[300px]">
+          <div className="group/target relative flex flex-col rounded-lg border border-input bg-muted/30 md:min-h-[300px]">
             <div className="flex-1 whitespace-pre-wrap break-words p-4 text-base">
               {!extensionInstalled && sourceText.trim() ? (
                 <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
