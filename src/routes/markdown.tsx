@@ -6,7 +6,7 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Textarea } from '@/components/ui/textarea'
 import { LANGUAGES } from '@/lib/languages'
 import { rpc } from '@/lib/rpc'
-import { splitSegments, buildSourceRanges } from '@/lib/segments'
+import { splitMarkdownBlocks, type MarkdownBlock } from '@/lib/segments'
 import {
   EXTENSION_LINK,
   STORAGE_KEY,
@@ -16,23 +16,27 @@ import {
   type Segment,
 } from '@/lib/shared'
 
-export const Route = createFileRoute('/')({
-  component: HomePage,
+export const Route = createFileRoute('/markdown')({
+  component: MarkdownPage,
 })
 
-function HomePage() {
+function MarkdownPage() {
   const extensionInstalled = useExtensionInstalled()
   const [targetLang, setTargetLang] = useState(getDefaultTargetLang)
   const [sourceText, setSourceText] = useState('')
+  const [blocks, setBlocks] = useState<MarkdownBlock[]>([])
   const [segments, setSegments] = useState<Segment[]>([])
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null)
   const translateIdRef = useRef(0)
 
-  function translateSegments(text: string, to: string) {
+  function translateMarkdown(text: string, to: string) {
     if (!extensionInstalled) return
-    const sources = splitSegments(text)
-    if (sources.length === 0) {
+    const newBlocks = splitMarkdownBlocks(text)
+    setBlocks(newBlocks)
+
+    const translatable = newBlocks.filter((b) => b.translatable)
+    if (translatable.length === 0) {
       setSegments([])
       return
     }
@@ -40,23 +44,23 @@ function HomePage() {
     const id = ++translateIdRef.current
 
     setSegments((prev) =>
-      sources.map((source) => {
+      translatable.map((block) => {
         const existing = prev.find(
-          (s) => s.source === source && s.status === 'done',
+          (s) => s.source === block.text && s.status === 'done',
         )
         if (existing) return existing
-        return { source, translated: '', status: 'pending' as const }
+        return { source: block.text, translated: '', status: 'pending' as const }
       }),
     )
 
-    sources.forEach((source, i) => {
+    translatable.forEach((block, i) => {
       rpc
-        .sendMessage('translateBatch', { texts: [source], to })
+        .sendMessage('translateBatch', { texts: [block.text], to })
         .then((results) => {
           if (translateIdRef.current !== id) return
           setSegments((prev) =>
             prev.map((seg, j) =>
-              j === i && seg.source === source
+              j === i && seg.source === block.text
                 ? { ...seg, translated: results[0] ?? '', status: 'done' }
                 : seg,
             ),
@@ -66,7 +70,7 @@ function HomePage() {
           if (translateIdRef.current !== id) return
           setSegments((prev) =>
             prev.map((seg, j) =>
-              j === i && seg.source === source
+              j === i && seg.source === block.text
                 ? { ...seg, status: 'error' }
                 : seg,
             ),
@@ -116,11 +120,12 @@ function HomePage() {
     setSourceText(value)
     if (debounceRef.current) clearTimeout(debounceRef.current)
     if (!value.trim()) {
+      setBlocks([])
       setSegments([])
       return
     }
     debounceRef.current = setTimeout(() => {
-      translateSegments(value, targetLang)
+      translateMarkdown(value, targetLang)
     }, 500)
   }
 
@@ -128,37 +133,105 @@ function HomePage() {
     setTargetLang(value)
     localStorage.setItem(STORAGE_KEY, value)
     if (sourceText.trim()) {
-      translateSegments(sourceText, value)
+      translateMarkdown(sourceText, value)
     }
   }
 
-  const sourceRanges = buildSourceRanges(sourceText)
+  const currentBlocks = sourceText.trim()
+    ? splitMarkdownBlocks(sourceText)
+    : []
 
   function renderSourceOverlay() {
     if (!sourceText) return null
-    if (segments.length === 0 || sourceRanges.length === 0) return sourceText
-    const parts: React.ReactNode[] = []
-    let cursor = 0
-    sourceRanges.forEach((range, i) => {
-      if (cursor < range.start) {
-        parts.push(
-          <span key={`gap-${i}`}>{sourceText.slice(cursor, range.start)}</span>,
+    if (currentBlocks.length === 0 || segments.length === 0) return sourceText
+
+    let tIdx = 0
+    return currentBlocks.map((block, i) => {
+      const separator = i < currentBlocks.length - 1 ? '\n' : ''
+      if (block.translatable) {
+        const thisIdx = tIdx++
+        return (
+          <span key={i}>
+            <span
+              className={`rounded transition-colors ${hoveredIndex === thisIdx ? 'bg-[#d3e3fd] dark:bg-[#2a3a50]' : ''}`}
+            >
+              {block.text}
+            </span>
+            {separator}
+          </span>
         )
       }
-      parts.push(
-        <span
-          key={`seg-${i}`}
-          className={`rounded transition-colors ${hoveredIndex === i ? 'bg-[#d3e3fd] dark:bg-[#2a3a50]' : ''}`}
-        >
-          {sourceText.slice(range.start, range.end)}
-        </span>,
+      return (
+        <span key={i}>
+          {block.text}
+          {separator}
+        </span>
       )
-      cursor = range.end
     })
-    if (cursor < sourceText.length) {
-      parts.push(<span key="tail">{sourceText.slice(cursor)}</span>)
+  }
+
+  function renderTranslatedBlocks() {
+    if (blocks.length === 0) {
+      return <span className="text-muted-foreground">Translation</span>
     }
-    return parts
+
+    let segIdx = 0
+    return blocks.map((block, i) => {
+      const separator = i < blocks.length - 1 ? '\n' : ''
+
+      if (!block.translatable) {
+        return (
+          <span key={i}>
+            {block.text}
+            {separator}
+          </span>
+        )
+      }
+
+      const thisIdx = segIdx
+      const seg = segments[segIdx++]
+      return (
+        <span key={i}>
+          <span
+            className={`rounded transition-colors ${
+              hoveredIndex === thisIdx
+                ? 'bg-[#d3e3fd] dark:bg-[#2a3a50]'
+                : 'hover:bg-[#d3e3fd]/50 dark:hover:bg-[#2a3a50]/50'
+            }`}
+            onMouseEnter={() => setHoveredIndex(thisIdx)}
+            onMouseLeave={() => setHoveredIndex(null)}
+          >
+            {!seg || seg.status === 'pending' ? (
+              <Loader2 className="inline size-4 animate-spin text-muted-foreground" />
+            ) : seg.status === 'error' ? (
+              <span
+                role="button"
+                onClick={retryAllFailed}
+                className="inline-flex cursor-pointer items-center gap-1 text-destructive hover:text-destructive/80"
+              >
+                Translation failed
+                <RotateCw className="size-3" />
+              </span>
+            ) : (
+              seg.translated
+            )}
+          </span>
+          {separator}
+        </span>
+      )
+    })
+  }
+
+  function getTranslatedText(): string {
+    let segIdx = 0
+    return blocks
+      .map((block) => {
+        if (!block.translatable) return block.text
+        const seg = segments[segIdx++]
+        if (seg?.status === 'done') return seg.translated
+        return block.text
+      })
+      .join('\n')
   }
 
   return (
@@ -204,13 +277,13 @@ function HomePage() {
           </div>
           <Textarea
             className="flex-1 resize-none border-none bg-transparent p-4 text-base text-transparent caret-foreground shadow-none ring-0 focus-visible:border-none focus-visible:ring-0 md:text-base"
-            placeholder="Enter text to translate..."
+            placeholder="Paste markdown here..."
             value={sourceText}
             onChange={(e) => handleSourceChange(e.target.value)}
           />
         </div>
 
-        {/* Target: pre-wrap block mirroring source structure */}
+        {/* Target: translated blocks */}
         <div className="group/target relative flex flex-col rounded-lg border border-input bg-muted/30 md:min-h-[300px]">
           <div className="flex-1 whitespace-pre-wrap break-words p-4 text-base">
             {!extensionInstalled && sourceText.trim() ? (
@@ -227,46 +300,12 @@ function HomePage() {
                   Install Extension
                 </a>
               </div>
-            ) : segments.length === 0 ? (
-              <span className="text-muted-foreground">Translation</span>
             ) : (
-              segments.map((seg, i) => (
-                <span key={i}>
-                  <span
-                    className={`rounded transition-colors ${
-                      hoveredIndex === i
-                        ? 'bg-[#d3e3fd] dark:bg-[#2a3a50]'
-                        : 'hover:bg-[#d3e3fd]/50 dark:hover:bg-[#2a3a50]/50'
-                    }`}
-                    onMouseEnter={() => setHoveredIndex(i)}
-                    onMouseLeave={() => setHoveredIndex(null)}
-                  >
-                    {seg.status === 'pending' ? (
-                      <Loader2 className="inline size-4 animate-spin text-muted-foreground" />
-                    ) : seg.status === 'error' ? (
-                      <span
-                        role="button"
-                        onClick={retryAllFailed}
-                        className="inline-flex cursor-pointer items-center gap-1 text-destructive hover:text-destructive/80"
-                      >
-                        Translation failed
-                        <RotateCw className="size-3" />
-                      </span>
-                    ) : (
-                      seg.translated
-                    )}
-                  </span>
-                  {sourceRanges[i]?.separator}
-                </span>
-              ))
+              renderTranslatedBlocks()
             )}
           </div>
           {segments.some((s) => s.status === 'done') && (
-            <CopyButton
-              text={segments
-                .map((s, i) => s.translated + (sourceRanges[i]?.separator ?? ''))
-                .join('')}
-            />
+            <CopyButton text={getTranslatedText()} />
           )}
         </div>
       </div>

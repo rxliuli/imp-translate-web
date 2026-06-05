@@ -9,8 +9,14 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as MarkdownRouteImport } from './routes/markdown'
 import { Route as IndexRouteImport } from './routes/index'
 
+const MarkdownRoute = MarkdownRouteImport.update({
+  id: '/markdown',
+  path: '/markdown',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -19,28 +25,39 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/markdown': typeof MarkdownRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/markdown': typeof MarkdownRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/markdown': typeof MarkdownRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths: '/' | '/markdown'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to: '/' | '/markdown'
+  id: '__root__' | '/' | '/markdown'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  MarkdownRoute: typeof MarkdownRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/markdown': {
+      id: '/markdown'
+      path: '/markdown'
+      fullPath: '/markdown'
+      preLoaderRoute: typeof MarkdownRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -53,6 +70,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  MarkdownRoute: MarkdownRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

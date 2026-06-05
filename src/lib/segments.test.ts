@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { splitSegments, buildSourceRanges } from './segments'
+import { splitSegments, buildSourceRanges, splitMarkdownBlocks } from './segments'
 
 describe('splitSegments', () => {
   it('splits by newline, filters empty lines', () => {
@@ -107,5 +107,144 @@ describe('buildSourceRanges', () => {
     }
     for (let j = cursor; j < text.length; j++) covered.add(j)
     expect(covered.size).toBe(text.length)
+  })
+})
+
+describe('splitMarkdownBlocks', () => {
+  it('returns empty for blank input', () => {
+    expect(splitMarkdownBlocks('')).toEqual([])
+    expect(splitMarkdownBlocks('  \n  ')).toEqual([])
+  })
+
+  it('splits paragraphs by blank lines', () => {
+    const blocks = splitMarkdownBlocks('Hello world.\n\nSecond paragraph.')
+    expect(blocks).toEqual([
+      { text: 'Hello world.', translatable: true },
+      { text: '', translatable: false },
+      { text: 'Second paragraph.', translatable: true },
+    ])
+  })
+
+  it('keeps multi-line paragraphs together', () => {
+    const blocks = splitMarkdownBlocks('Line one\nLine two\n\nNext.')
+    expect(blocks).toEqual([
+      { text: 'Line one\nLine two', translatable: true },
+      { text: '', translatable: false },
+      { text: 'Next.', translatable: true },
+    ])
+  })
+
+  it('keeps fenced code blocks as non-translatable', () => {
+    const text = 'Before.\n\n```python\ndef foo():\n    pass\n```\n\nAfter.'
+    const blocks = splitMarkdownBlocks(text)
+    expect(blocks).toEqual([
+      { text: 'Before.', translatable: true },
+      { text: '', translatable: false },
+      { text: '```python\ndef foo():\n    pass\n```', translatable: false },
+      { text: '', translatable: false },
+      { text: 'After.', translatable: true },
+    ])
+  })
+
+  it('handles code blocks with blank lines inside', () => {
+    const text = '```\nline1\n\nline2\n```'
+    const blocks = splitMarkdownBlocks(text)
+    expect(blocks).toEqual([
+      { text: '```\nline1\n\nline2\n```', translatable: false },
+    ])
+  })
+
+  it('handles unclosed code blocks', () => {
+    const text = '```\ncode without closing'
+    const blocks = splitMarkdownBlocks(text)
+    expect(blocks).toEqual([
+      { text: '```\ncode without closing', translatable: false },
+    ])
+  })
+
+  it('reconstructs original text by joining with newline', () => {
+    const text = '# Title\n\nParagraph one.\n\n```js\nconst x = 1\n```\n\nEnd.'
+    const blocks = splitMarkdownBlocks(text)
+    expect(blocks.map((b) => b.text).join('\n')).toBe(text)
+  })
+
+  it('handles headings as translatable', () => {
+    const blocks = splitMarkdownBlocks('# Heading\n\n## Sub')
+    expect(blocks).toEqual([
+      { text: '# Heading', translatable: true },
+      { text: '', translatable: false },
+      { text: '## Sub', translatable: true },
+    ])
+  })
+
+  it('handles multiple consecutive blank lines', () => {
+    const blocks = splitMarkdownBlocks('A\n\n\n\nB')
+    expect(blocks).toEqual([
+      { text: 'A', translatable: true },
+      { text: '\n\n', translatable: false },
+      { text: 'B', translatable: true },
+    ])
+  })
+
+  it('splits unordered list items individually (dash)', () => {
+    const text = '- item 1\n- item 2\n- item 3'
+    const blocks = splitMarkdownBlocks(text)
+    expect(blocks).toEqual([
+      { text: '- item 1', translatable: true },
+      { text: '- item 2', translatable: true },
+      { text: '- item 3', translatable: true },
+    ])
+  })
+
+  it('splits unordered list items individually (asterisk and plus)', () => {
+    const blocks = splitMarkdownBlocks('* foo\n+ bar')
+    expect(blocks).toEqual([
+      { text: '* foo', translatable: true },
+      { text: '+ bar', translatable: true },
+    ])
+  })
+
+  it('splits ordered list items individually', () => {
+    const blocks = splitMarkdownBlocks('1. first\n2. second\n3. third')
+    expect(blocks).toEqual([
+      { text: '1. first', translatable: true },
+      { text: '2. second', translatable: true },
+      { text: '3. third', translatable: true },
+    ])
+  })
+
+  it('splits indented list items individually', () => {
+    const blocks = splitMarkdownBlocks('- top\n  - nested\n  - nested2\n- top2')
+    expect(blocks).toEqual([
+      { text: '- top', translatable: true },
+      { text: '  - nested', translatable: true },
+      { text: '  - nested2', translatable: true },
+      { text: '- top2', translatable: true },
+    ])
+  })
+
+  it('handles list after paragraph with blank line', () => {
+    const text = 'Intro text.\n\n- item 1\n- item 2'
+    const blocks = splitMarkdownBlocks(text)
+    expect(blocks).toEqual([
+      { text: 'Intro text.', translatable: true },
+      { text: '', translatable: false },
+      { text: '- item 1', translatable: true },
+      { text: '- item 2', translatable: true },
+    ])
+  })
+
+  it('reconstructs lists correctly', () => {
+    const text = '## Goals\n\n- item 1\n- item 2\n\nEnd.'
+    const blocks = splitMarkdownBlocks(text)
+    expect(blocks.map((b) => b.text).join('\n')).toBe(text)
+  })
+
+  it('handles ordered list with closing paren', () => {
+    const blocks = splitMarkdownBlocks('1) first\n2) second')
+    expect(blocks).toEqual([
+      { text: '1) first', translatable: true },
+      { text: '2) second', translatable: true },
+    ])
   })
 })
