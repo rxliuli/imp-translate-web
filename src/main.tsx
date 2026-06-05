@@ -5,6 +5,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { routeTree } from './routeTree.gen'
 import './index.css'
 
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+  document.documentElement.classList.toggle('dark', e.matches)
+})
+
 const queryClient = new QueryClient()
 const router = createRouter({ routeTree })
 

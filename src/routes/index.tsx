@@ -179,7 +179,7 @@ function HomePage() {
       parts.push(
         <span
           key={`seg-${i}`}
-          className={`rounded transition-colors ${hoveredIndex === i ? 'bg-[#d3e3fd]' : ''}`}
+          className={`rounded transition-colors ${hoveredIndex === i ? 'bg-[#d3e3fd] dark:bg-[#2a3a50]' : ''}`}
         >
           {sourceText.slice(range.start, range.end)}
         </span>,
@@ -295,8 +295,8 @@ function HomePage() {
                   <span
                     className={`rounded transition-colors ${
                       hoveredIndex === i
-                        ? 'bg-[#d3e3fd]'
-                        : 'hover:bg-[#d3e3fd]/50'
+                        ? 'bg-[#d3e3fd] dark:bg-[#2a3a50]'
+                        : 'hover:bg-[#d3e3fd]/50 dark:hover:bg-[#2a3a50]/50'
                     }`}
                     onMouseEnter={() => setHoveredIndex(i)}
                     onMouseLeave={() => setHoveredIndex(null)}
