@@ -51,7 +51,7 @@ function HomePage() {
 
     sources.forEach((source, i) => {
       rpc
-        .sendMessage('translateBatch', { texts: [source], to })
+        .sendMessage('translate', { texts: [source], to })
         .then((results) => {
           if (translateIdRef.current !== id) return
           setSegments((prev) =>
@@ -90,7 +90,7 @@ function HomePage() {
     failedIndices.forEach((i) => {
       const seg = segments[i]
       rpc
-        .sendMessage('translateBatch', { texts: [seg.source], to: targetLang })
+        .sendMessage('translate', { texts: [seg.source], to: targetLang })
         .then((results) => {
           setSegments((prev) =>
             prev.map((s, j) =>

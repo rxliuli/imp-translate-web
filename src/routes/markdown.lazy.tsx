@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createLazyFileRoute } from '@tanstack/react-router'
 import { useState, useRef } from 'react'
 import { Loader2, RotateCw } from 'lucide-react'
 import { buttonVariants } from '@/components/ui/button'
@@ -16,7 +16,7 @@ import {
   type Segment,
 } from '@/lib/shared'
 
-export const Route = createFileRoute('/markdown')({
+export const Route = createLazyFileRoute('/markdown')({
   component: MarkdownPage,
 })
 
@@ -55,7 +55,7 @@ function MarkdownPage() {
 
     translatable.forEach((block, i) => {
       rpc
-        .sendMessage('translateBatch', { texts: [block.text], to })
+        .sendMessage('translate', { texts: [block.text], to })
         .then((results) => {
           if (translateIdRef.current !== id) return
           setSegments((prev) =>
@@ -94,7 +94,7 @@ function MarkdownPage() {
     failedIndices.forEach((i) => {
       const seg = segments[i]
       rpc
-        .sendMessage('translateBatch', { texts: [seg.source], to: targetLang })
+        .sendMessage('translate', { texts: [seg.source], to: targetLang })
         .then((results) => {
           setSegments((prev) =>
             prev.map((s, j) =>

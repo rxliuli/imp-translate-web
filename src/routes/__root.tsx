@@ -25,6 +25,12 @@ export const Route = createRootRoute({
             >
               Markdown
             </Link>
+            <Link
+              to="/subtitle"
+              className="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground [&.active]:font-medium [&.active]:text-foreground"
+            >
+              Subtitle
+            </Link>
           </nav>
         </div>
         <div className="flex items-center gap-3">
