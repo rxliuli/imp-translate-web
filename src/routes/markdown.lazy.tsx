@@ -1,4 +1,4 @@
-import { createFileRoute } from '@tanstack/react-router'
+import { createLazyFileRoute } from '@tanstack/react-router'
 import { useState, useRef } from 'react'
 import { Loader2, RotateCw } from 'lucide-react'
 import { buttonVariants } from '@/components/ui/button'
@@ -16,7 +16,7 @@ import {
   type Segment,
 } from '@/lib/shared'
 
-export const Route = createFileRoute('/markdown')({
+export const Route = createLazyFileRoute('/markdown')({
   component: MarkdownPage,
 })
 
@@ -55,7 +55,7 @@ function MarkdownPage() {
 
     translatable.forEach((block, i) => {
       rpc
-        .sendMessage('translateBatch', { texts: [block.text], to })
+        .sendMessage('translate', { texts: [block.text], to })
         .then((results) => {
           if (translateIdRef.current !== id) return
           setSegments((prev) =>
@@ -94,7 +94,7 @@ function MarkdownPage() {
     failedIndices.forEach((i) => {
       const seg = segments[i]
       rpc
-        .sendMessage('translateBatch', { texts: [seg.source], to: targetLang })
+        .sendMessage('translate', { texts: [seg.source], to: targetLang })
         .then((results) => {
           setSegments((prev) =>
             prev.map((s, j) =>
@@ -235,7 +235,7 @@ function MarkdownPage() {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-4 p-4 md:p-6">
+    <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-4 px-3 py-4 md:p-6">
       {!extensionInstalled && (
         <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800 dark:border-yellow-900 dark:bg-yellow-950 dark:text-yellow-200">
           Imp Translate extension is not detected.{' '}
@@ -268,7 +268,7 @@ function MarkdownPage() {
 
       <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
         {/* Source: textarea + highlight overlay */}
-        <div className="relative flex flex-col rounded-lg border border-input md:min-h-[300px]">
+        <div className="relative flex min-h-[150px] flex-col rounded-lg border border-input md:min-h-[300px]">
           <div
             aria-hidden
             className="pointer-events-none absolute inset-0 overflow-hidden whitespace-pre-wrap break-words p-4 text-base"
@@ -276,6 +276,7 @@ function MarkdownPage() {
             {renderSourceOverlay()}
           </div>
           <Textarea
+            autoFocus
             className="flex-1 resize-none border-none bg-transparent p-4 text-base text-transparent caret-foreground shadow-none ring-0 focus-visible:border-none focus-visible:ring-0 md:text-base"
             placeholder="Paste markdown here..."
             value={sourceText}
@@ -284,7 +285,7 @@ function MarkdownPage() {
         </div>
 
         {/* Target: translated blocks */}
-        <div className="group/target relative flex flex-col rounded-lg border border-input bg-muted/30 md:min-h-[300px]">
+        <div className={`group/target relative min-h-[150px] flex-col rounded-lg border border-input bg-muted/30 md:min-h-[300px] ${!sourceText.trim() ? 'hidden md:flex' : 'flex'}`}>
           <div className="flex-1 whitespace-pre-wrap break-words p-4 text-base">
             {!extensionInstalled && sourceText.trim() ? (
               <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">

@@ -8,15 +8,24 @@
 // You should NOT make any changes in this file as it will be overwritten.
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
+import { createFileRoute } from '@tanstack/react-router'
+
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as MarkdownRouteImport } from './routes/markdown'
 import { Route as IndexRouteImport } from './routes/index'
 
-const MarkdownRoute = MarkdownRouteImport.update({
+const SubtitleLazyRouteImport = createFileRoute('/subtitle')()
+const MarkdownLazyRouteImport = createFileRoute('/markdown')()
+
+const SubtitleLazyRoute = SubtitleLazyRouteImport.update({
+  id: '/subtitle',
+  path: '/subtitle',
+  getParentRoute: () => rootRouteImport,
+} as any).lazy(() => import('./routes/subtitle.lazy').then((d) => d.Route))
+const MarkdownLazyRoute = MarkdownLazyRouteImport.update({
   id: '/markdown',
   path: '/markdown',
   getParentRoute: () => rootRouteImport,
-} as any)
+} as any).lazy(() => import('./routes/markdown.lazy').then((d) => d.Route))
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -25,37 +34,48 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/markdown': typeof MarkdownRoute
+  '/markdown': typeof MarkdownLazyRoute
+  '/subtitle': typeof SubtitleLazyRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/markdown': typeof MarkdownRoute
+  '/markdown': typeof MarkdownLazyRoute
+  '/subtitle': typeof SubtitleLazyRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/markdown': typeof MarkdownRoute
+  '/markdown': typeof MarkdownLazyRoute
+  '/subtitle': typeof SubtitleLazyRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/markdown'
+  fullPaths: '/' | '/markdown' | '/subtitle'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/markdown'
-  id: '__root__' | '/' | '/markdown'
+  to: '/' | '/markdown' | '/subtitle'
+  id: '__root__' | '/' | '/markdown' | '/subtitle'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  MarkdownRoute: typeof MarkdownRoute
+  MarkdownLazyRoute: typeof MarkdownLazyRoute
+  SubtitleLazyRoute: typeof SubtitleLazyRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/subtitle': {
+      id: '/subtitle'
+      path: '/subtitle'
+      fullPath: '/subtitle'
+      preLoaderRoute: typeof SubtitleLazyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/markdown': {
       id: '/markdown'
       path: '/markdown'
       fullPath: '/markdown'
-      preLoaderRoute: typeof MarkdownRouteImport
+      preLoaderRoute: typeof MarkdownLazyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -70,7 +90,8 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  MarkdownRoute: MarkdownRoute,
+  MarkdownLazyRoute: MarkdownLazyRoute,
+  SubtitleLazyRoute: SubtitleLazyRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
