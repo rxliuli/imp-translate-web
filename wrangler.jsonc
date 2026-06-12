@@ -1,9 +1,15 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "imp-translate-web",
-  "compatibility_date": "2025-06-01",
+  "compatibility_date": "2026-06-05",
+  "observability": {
+    "enabled": true
+  },
   "assets": {
     "directory": "./dist",
     "not_found_handling": "single-page-application",
   },
+  "compatibility_flags": [
+    "nodejs_compat"
+  ]
 }
