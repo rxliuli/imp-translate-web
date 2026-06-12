@@ -276,6 +276,7 @@ function MarkdownPage() {
             {renderSourceOverlay()}
           </div>
           <Textarea
+            autoFocus
             className="flex-1 resize-none border-none bg-transparent p-4 text-base text-transparent caret-foreground shadow-none ring-0 focus-visible:border-none focus-visible:ring-0 md:text-base"
             placeholder="Paste markdown here..."
             value={sourceText}
