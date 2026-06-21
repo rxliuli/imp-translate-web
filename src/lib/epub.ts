@@ -19,6 +19,19 @@ function hasNestedTextTag(node: Element): boolean {
   return false
 }
 
+function replaceTextContent(el: Element, text: string): void {
+  const textNodes: Text[] = []
+  const walker = el.ownerDocument!.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+  while (walker.nextNode()) {
+    textNodes.push(walker.currentNode as Text)
+  }
+  if (textNodes.length === 0) return
+  textNodes[0].textContent = text
+  for (let i = 1; i < textNodes.length; i++) {
+    textNodes[i].textContent = ''
+  }
+}
+
 function getTranslatableElements(body: Element): Element[] {
   const elements: Element[] = []
   function walk(node: Element) {
@@ -145,7 +158,7 @@ export function parseEpub(data: Uint8Array): ParsedEpub {
             )
             el.parentNode?.insertBefore(clone, el.nextSibling)
           } else {
-            el.textContent = translation
+            replaceTextContent(el, translation)
           }
         }
 

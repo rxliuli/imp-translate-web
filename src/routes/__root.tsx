@@ -1,7 +1,24 @@
 import { createRootRoute, Link, Outlet } from '@tanstack/react-router'
 import { FaDiscord } from 'react-icons/fa'
+import { Menu } from 'lucide-react'
 import { buttonVariants } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@/components/ui/dropdown-menu'
 import { DISCORD_LINK } from '@/lib/shared'
+
+const NAV_LINKS = [
+  { to: '/' as const, label: 'Text' },
+  { to: '/markdown' as const, label: 'Markdown' },
+  { to: '/subtitle' as const, label: 'Subtitle' },
+  { to: '/epub' as const, label: 'EPUB' },
+]
+
+const navLinkClass =
+  'rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground [&.active]:font-medium [&.active]:text-foreground'
 
 export const Route = createRootRoute({
   component: () => (
@@ -12,32 +29,29 @@ export const Route = createRootRoute({
             <img src="/icon-128.png" alt="Imp Translate" className="size-6" />
             <h1 className="hidden text-lg font-semibold md:block">Imp Translate</h1>
           </div>
-          <nav className="flex items-center gap-1">
-            <Link
-              to="/"
-              className="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground [&.active]:font-medium [&.active]:text-foreground"
-            >
-              Text
-            </Link>
-            <Link
-              to="/markdown"
-              className="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground [&.active]:font-medium [&.active]:text-foreground"
-            >
-              Markdown
-            </Link>
-            <Link
-              to="/subtitle"
-              className="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground [&.active]:font-medium [&.active]:text-foreground"
-            >
-              Subtitle
-            </Link>
-            <Link
-              to="/epub"
-              className="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground [&.active]:font-medium [&.active]:text-foreground"
-            >
-              EPUB
-            </Link>
+          {/* Desktop nav */}
+          <nav className="hidden items-center gap-1 md:flex">
+            {NAV_LINKS.map((link) => (
+              <Link key={link.to} to={link.to} className={navLinkClass}>
+                {link.label}
+              </Link>
+            ))}
           </nav>
+          {/* Mobile nav */}
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              className="inline-flex cursor-pointer items-center justify-center rounded-md p-1.5 text-muted-foreground hover:text-foreground md:hidden"
+            >
+              <Menu className="size-5" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" sideOffset={8} className="w-auto">
+              {NAV_LINKS.map((link) => (
+                <DropdownMenuItem key={link.to} render={<Link to={link.to} />}>
+                  {link.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
         <div className="flex items-center gap-3">
           <a

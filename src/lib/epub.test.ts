@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { parseEpub } from './epub'
-import { zipSync, strToU8 } from 'fflate'
+import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
 
 const FIXTURE_EPUB = new URL('../../test/fixtures/test.epub', import.meta.url).pathname
 
@@ -105,6 +105,27 @@ describe('parseEpub', () => {
     })
     const result = parseEpub(data)
     expect(result.segments).toEqual(['Chapter 1', 'Chapter 2'])
+  })
+
+  it('preserves links in target-only mode', () => {
+    const data = makeEpub({
+      'ch1.xhtml': xhtml(
+        '<div><span><a href="ch2.xhtml">Chapter Two</a></span></div>' +
+        '<p>Plain text</p>',
+      ),
+    })
+    const result = parseEpub(data)
+    expect(result.segments).toEqual(['Chapter Two', 'Plain text'])
+
+    const rebuilt = result.rebuild(['第二章', '纯文本'], false)
+
+    const files = unzipSync(rebuilt)
+    const html = strFromU8(files['ch1.xhtml'])
+    expect(html).toContain('href="ch2.xhtml"')
+    expect(html).toContain('第二章')
+
+    const reparsed = parseEpub(rebuilt)
+    expect(reparsed.segments).toEqual(['第二章', '纯文本'])
   })
 
   it('rebuilds in target-only mode', () => {

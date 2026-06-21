@@ -281,9 +281,10 @@ function EpubPage() {
       )}
 
       <div className="flex items-center gap-2">
-        <span className="text-sm text-muted-foreground">Auto Detect</span>
+        <span className="shrink-0 text-sm text-muted-foreground">Auto Detect</span>
         <span className="text-muted-foreground">&rarr;</span>
         <NativeSelect
+          className="min-w-0 !w-auto shrink"
           value={targetLang}
           onChange={(e) => handleTargetLangChange(e.target.value)}
         >
@@ -294,6 +295,7 @@ function EpubPage() {
           ))}
         </NativeSelect>
         <NativeSelect
+          className="min-w-0 !w-auto shrink"
           value={bilingual ? 'bilingual' : 'target'}
           onChange={(e) => setBilingual(e.target.value === 'bilingual')}
         >
