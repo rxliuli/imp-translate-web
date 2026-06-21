@@ -4,7 +4,7 @@ import { Loader2, RotateCw, Upload, Download, X } from 'lucide-react'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { LANGUAGES, LANGUAGE_MAP } from '@/lib/languages'
 import { rpc } from '@/lib/rpc'
-import { parseSubtitle, type ParsedSubtitle } from '@/lib/subtitle'
+import { parseEpub, type ParsedEpub } from '@/lib/epub'
 import {
   EXTENSION_LINK,
   STORAGE_KEY,
@@ -12,16 +12,16 @@ import {
   useExtensionInstalled,
 } from '@/lib/shared'
 import { buttonVariants } from '@/components/ui/button'
-import { zipSync, strToU8 } from 'fflate'
+import { zipSync } from 'fflate'
 
-export const Route = createLazyFileRoute('/subtitle')({
-  component: SubtitlePage,
+export const Route = createLazyFileRoute('/epub')({
+  component: EpubPage,
 })
 
-interface SubtitleFileState {
+interface EpubFileState {
   id: string
   name: string
-  parsed: ParsedSubtitle
+  parsed: ParsedEpub
   translations: (string | null)[]
   errors: boolean[]
 }
@@ -29,35 +29,28 @@ interface SubtitleFileState {
 function getOutputFilename(
   originalName: string,
   targetLang: string,
+  bilingual: boolean,
 ): string {
+  const suffix = bilingual ? `.${targetLang}.bilingual` : `.${targetLang}`
   const lastDot = originalName.lastIndexOf('.')
-  if (lastDot === -1) return `${originalName}.${targetLang}`
+  if (lastDot === -1) return `${originalName}${suffix}`
   const ext = originalName.slice(lastDot)
   const base = originalName.slice(0, lastDot)
   const secondDot = base.lastIndexOf('.')
   if (secondDot !== -1) {
     const langSuffix = base.slice(secondDot + 1)
     if (langSuffix in LANGUAGE_MAP) {
-      return base.slice(0, secondDot) + '.' + targetLang + ext
+      return base.slice(0, secondDot) + suffix + ext
     }
   }
-  return base + '.' + targetLang + ext
+  return base + suffix + ext
 }
 
-function downloadBlob(content: string, filename: string) {
-  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
-}
-
-function SubtitlePage() {
+function EpubPage() {
   const extensionInstalled = useExtensionInstalled()
   const [targetLang, setTargetLang] = useState(getDefaultTargetLang)
-  const [files, setFiles] = useState<SubtitleFileState[]>([])
+  const [bilingual, setBilingual] = useState(true)
+  const [files, setFiles] = useState<EpubFileState[]>([])
   const translateIdRef = useRef(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -87,34 +80,38 @@ function SubtitlePage() {
   function addFiles(fileList: FileList) {
     const id = ++translateIdRef.current
     const newFiles = Array.from(fileList).filter((f) =>
-      /\.(srt|ass|ssa)$/i.test(f.name),
+      /\.epub$/i.test(f.name),
     )
 
     for (const file of newFiles) {
       const fileId = `${id}-${file.name}`
       const reader = new FileReader()
       reader.onload = () => {
-        const content = reader.result as string
-        const parsed = parseSubtitle(content, file.name)
-        const state: SubtitleFileState = {
-          id: fileId,
-          name: file.name,
-          parsed,
-          translations: new Array(parsed.segments.length).fill(null),
-          errors: new Array(parsed.segments.length).fill(false),
-        }
-        setFiles((prev) => [...prev, state])
-        if (extensionInstalled) {
-          enqueueFile(() => translateFile(fileId, parsed, targetLang))
+        try {
+          const data = new Uint8Array(reader.result as ArrayBuffer)
+          const parsed = parseEpub(data)
+          const state: EpubFileState = {
+            id: fileId,
+            name: file.name,
+            parsed,
+            translations: new Array(parsed.segments.length).fill(null),
+            errors: new Array(parsed.segments.length).fill(false),
+          }
+          setFiles((prev) => [...prev, state])
+          if (extensionInstalled) {
+            enqueueFile(() => translateFile(fileId, parsed, targetLang))
+          }
+        } catch {
+          // Invalid EPUB file
         }
       }
-      reader.readAsText(file)
+      reader.readAsArrayBuffer(file)
     }
   }
 
   async function translateFile(
     fileId: string,
-    parsed: ParsedSubtitle,
+    parsed: ParsedEpub,
     lang: string,
   ): Promise<void> {
     const BATCH_SIZE = 20
@@ -151,7 +148,7 @@ function SubtitlePage() {
     }
   }
 
-  function retryFile(fileState: SubtitleFileState) {
+  function retryFile(fileState: EpubFileState) {
     const failedIndices = fileState.errors
       .map((e, i) => (e ? i : -1))
       .filter((i) => i !== -1)
@@ -206,33 +203,43 @@ function SubtitlePage() {
     setFiles((prev) => prev.filter((f) => f.id !== fileId))
   }
 
-  function downloadFile(fileState: SubtitleFileState) {
+  function downloadFile(fileState: EpubFileState) {
     const translations = fileState.translations.map(
       (t, i) => t ?? fileState.parsed.segments[i],
     )
-    const content = fileState.parsed.rebuild(translations)
-    downloadBlob(content, getOutputFilename(fileState.name, targetLang))
+    const data = fileState.parsed.rebuild(translations, bilingual)
+    const blob = new Blob([data as BlobPart], { type: 'application/epub+zip' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = getOutputFilename(fileState.name, targetLang, bilingual)
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   function downloadAll() {
     const doneFiles = files.filter((f) => getFileStatus(f) === 'done')
     if (doneFiles.length === 0) return
 
+    if (doneFiles.length === 1) {
+      downloadFile(doneFiles[0])
+      return
+    }
+
     const zipData: Record<string, Uint8Array> = {}
     for (const f of doneFiles) {
       const translations = f.translations.map(
         (t, i) => t ?? f.parsed.segments[i],
       )
-      const content = f.parsed.rebuild(translations)
-      const name = getOutputFilename(f.name, targetLang)
-      zipData[name] = strToU8(content)
+      const data = f.parsed.rebuild(translations, bilingual)
+      zipData[getOutputFilename(f.name, targetLang, bilingual)] = data
     }
     const zipped = zipSync(zipData)
     const blob = new Blob([zipped], { type: 'application/zip' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `subtitles.${targetLang}.zip`
+    a.download = `epub.${targetLang}.zip`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -286,6 +293,13 @@ function SubtitlePage() {
             </NativeSelectOption>
           ))}
         </NativeSelect>
+        <NativeSelect
+          value={bilingual ? 'bilingual' : 'target'}
+          onChange={(e) => setBilingual(e.target.value === 'bilingual')}
+        >
+          <NativeSelectOption value="bilingual">Bilingual</NativeSelectOption>
+          <NativeSelectOption value="target">Target Only</NativeSelectOption>
+        </NativeSelect>
       </div>
 
       <div
@@ -297,16 +311,14 @@ function SubtitlePage() {
         <Upload className="size-8 text-muted-foreground" />
         <div className="text-center">
           <p className="text-sm font-medium">
-            Drop subtitle files here or click to browse
+            Drop EPUB files here or click to browse
           </p>
-          <p className="text-xs text-muted-foreground">
-            Supports .srt, .ass, .ssa
-          </p>
+          <p className="text-xs text-muted-foreground">Supports .epub</p>
         </div>
         <input
           ref={fileInputRef}
           type="file"
-          accept=".srt,.ass,.ssa"
+          accept=".epub"
           multiple
           className="hidden"
           onChange={(e) => {
@@ -323,6 +335,7 @@ function SubtitlePage() {
               key={f.id}
               file={f}
               targetLang={targetLang}
+              bilingual={bilingual}
               onDownload={() => downloadFile(f)}
               onRetry={() => retryFile(f)}
               onRemove={() => removeFile(f.id)}
@@ -332,7 +345,9 @@ function SubtitlePage() {
           {files.some((f) => getFileStatus(f) === 'done') && (
             <button
               onClick={downloadAll}
-              className={buttonVariants({ variant: 'default' }) + ' self-center'}
+              className={
+                buttonVariants({ variant: 'default' }) + ' self-center'
+              }
             >
               <Download className="size-4" />
               Download All
@@ -345,7 +360,7 @@ function SubtitlePage() {
 }
 
 function getFileStatus(
-  f: SubtitleFileState,
+  f: EpubFileState,
 ): 'translating' | 'done' | 'error' {
   if (f.errors.some(Boolean)) return 'error'
   if (f.translations.every((t) => t !== null)) return 'done'
@@ -355,12 +370,14 @@ function getFileStatus(
 function FileRow({
   file,
   targetLang,
+  bilingual,
   onDownload,
   onRetry,
   onRemove,
 }: {
-  file: SubtitleFileState
+  file: EpubFileState
   targetLang: string
+  bilingual: boolean
   onDownload: () => void
   onRetry: () => void
   onRemove: () => void
@@ -377,7 +394,7 @@ function FileRow({
         <div className="flex flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-2">
           <span className="truncate text-sm font-medium">{file.name}</span>
           <span className="truncate text-xs text-muted-foreground">
-            &rarr; {getOutputFilename(file.name, targetLang)}
+            &rarr; {getOutputFilename(file.name, targetLang, bilingual)}
           </span>
         </div>
         <div className="mt-1.5 flex items-center gap-2">
@@ -395,9 +412,7 @@ function FileRow({
           </div>
           <span className="text-xs text-muted-foreground">
             {status === 'error' ? (
-              <span className="text-destructive">
-                {errorCount} failed
-              </span>
+              <span className="text-destructive">{errorCount} failed</span>
             ) : status === 'done' ? (
               'Done'
             ) : (

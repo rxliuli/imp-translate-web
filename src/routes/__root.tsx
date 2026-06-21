@@ -31,6 +31,12 @@ export const Route = createRootRoute({
             >
               Subtitle
             </Link>
+            <Link
+              to="/epub"
+              className="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground [&.active]:font-medium [&.active]:text-foreground"
+            >
+              EPUB
+            </Link>
           </nav>
         </div>
         <div className="flex items-center gap-3">
