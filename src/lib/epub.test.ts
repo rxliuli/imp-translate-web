@@ -9,10 +9,16 @@ async function loadFixtureEpub(): Promise<Uint8Array> {
   return new Uint8Array(await res.arrayBuffer())
 }
 
-function makeEpub(chapters: Record<string, string>): Uint8Array {
+function makeEpub(
+  chapters: Record<string, string>,
+  ncx?: string,
+): Uint8Array {
   const manifestItems = Object.keys(chapters)
     .map((name, i) => `<item id="ch${i}" href="${name}" media-type="application/xhtml+xml"/>`)
     .join('\n')
+  const ncxItem = ncx
+    ? '<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>'
+    : ''
   const spineItems = Object.keys(chapters)
     .map((_, i) => `<itemref idref="ch${i}"/>`)
     .join('\n')
@@ -31,11 +37,13 @@ function makeEpub(chapters: Record<string, string>): Uint8Array {
       `<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="2.0">
   <metadata><dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">Test</dc:title></metadata>
-  <manifest>${manifestItems}</manifest>
+  <manifest>${manifestItems}${ncxItem}</manifest>
   <spine>${spineItems}</spine>
 </package>`,
     ),
   }
+
+  if (ncx) files['toc.ncx'] = strToU8(ncx)
 
   for (const [name, html] of Object.entries(chapters)) {
     files[name] = strToU8(html)
@@ -152,6 +160,149 @@ describe('parseEpub', () => {
   })
 })
 
+describe('parseEpub regressions (I, Panacea)', () => {
+  // SpaceBattles/FicHub books put entire chapters as direct text of a div,
+  // with nested <div>=///=</div> scene separators. The old walker skipped
+  // the container when it had a nested text tag, dropping all the prose.
+  it('extracts direct text from containers that also have nested block elements', () => {
+    const data = makeEpub({
+      'ch1.xhtml': xhtml(
+        '<div class="bbWrapper">First line of prose.<br/>\n<br/>\n' +
+          '<div>=///=</div><br/>\nSecond line of prose.</div>',
+      ),
+    })
+    const result = parseEpub(data)
+    expect(result.segments).toEqual([
+      'First line of prose.',
+      '=///=',
+      'Second line of prose.',
+    ])
+  })
+
+  it('splits br-separated lines into separate segments', () => {
+    const data = makeEpub({
+      'ch1.xhtml': xhtml('<p>Line one<br/>Line two</p>'),
+    })
+    const result = parseEpub(data)
+    expect(result.segments).toEqual(['Line one', 'Line two'])
+  })
+
+  it('keeps inline formatting within one segment', () => {
+    const data = makeEpub({
+      'ch1.xhtml': xhtml('<p>Hello <b>bold</b> world</p>'),
+    })
+    const result = parseEpub(data)
+    expect(result.segments).toEqual(['Hello bold world'])
+  })
+
+  it('splits lines inside inline elements that contain br', () => {
+    const data = makeEpub({
+      'ch1.xhtml': xhtml('<p><i>1) First rule.<br/>2) Second rule.</i></p>'),
+    })
+    const result = parseEpub(data)
+    expect(result.segments).toEqual(['1) First rule.', '2) Second rule.'])
+  })
+
+  it('bilingual rebuild keeps each translation next to its source line and preserves links', () => {
+    const data = makeEpub({
+      'ch1.xhtml': xhtml(
+        '<div>Part Two: <a href="ch2.xhtml">Getting Along</a><br/>' +
+          'Part Three: <a href="ch3.xhtml">Taking the Bull</a></div>',
+      ),
+    })
+    const result = parseEpub(data)
+    expect(result.segments).toEqual([
+      'Part Two: Getting Along',
+      'Part Three: Taking the Bull',
+    ])
+
+    const rebuilt = result.rebuild(['第二部：和睦相处', '第三部：迎难而上'], true)
+    const html = strFromU8(unzipSync(rebuilt)['ch1.xhtml'])
+    expect(html).toContain('href="ch2.xhtml"')
+    expect(html).toContain('href="ch3.xhtml"')
+
+    const reparsed = parseEpub(rebuilt)
+    expect(reparsed.segments).toEqual([
+      'Part Two: Getting Along',
+      '第二部：和睦相处',
+      'Part Three: Taking the Bull',
+      '第三部：迎难而上',
+    ])
+  })
+
+  it('bilingual rebuild skips translations identical to the source', () => {
+    const data = makeEpub({
+      'ch1.xhtml': xhtml('<div>Real text<br/><div>=///=</div></div>'),
+    })
+    const result = parseEpub(data)
+    expect(result.segments).toEqual(['Real text', '=///='])
+
+    const rebuilt = result.rebuild(['真实文本', '=///='], true)
+    const reparsed = parseEpub(rebuilt)
+    expect(reparsed.segments).toEqual(['Real text', '真实文本', '=///='])
+  })
+
+  it('translates NCX navigation labels', () => {
+    const ncx = `<?xml version="1.0" encoding="utf-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+  <docTitle><text>My Book</text></docTitle>
+  <navMap>
+    <navPoint id="n1" playOrder="1">
+      <navLabel><text>Chapter One</text></navLabel>
+      <content src="ch1.xhtml"/>
+    </navPoint>
+    <navPoint id="n2" playOrder="2">
+      <navLabel><text>Chapter Two</text></navLabel>
+      <content src="ch2.xhtml"/>
+    </navPoint>
+  </navMap>
+</ncx>`
+    const data = makeEpub(
+      {
+        'ch1.xhtml': xhtml('<p>Hello</p>'),
+        'ch2.xhtml': xhtml('<p>World</p>'),
+      },
+      ncx,
+    )
+    const result = parseEpub(data)
+    expect(result.segments).toEqual([
+      'Hello',
+      'World',
+      'My Book',
+      'Chapter One',
+      'Chapter Two',
+    ])
+
+    const rebuilt = result.rebuild(
+      ['你好', '世界', '我的书', '第一章', '第二章'],
+      true,
+    )
+    const ncxOut = strFromU8(unzipSync(rebuilt)['toc.ncx'])
+    expect(ncxOut).toContain('第一章')
+    expect(ncxOut).toContain('第二章')
+    expect(ncxOut).toContain('我的书')
+  })
+
+  it('falls back to HTML parsing for files that are not well-formed XML', () => {
+    const data = makeEpub({
+      'ch1.xhtml': xhtml('<p>A&nbsp;B</p>'),
+    })
+    const result = parseEpub(data)
+    expect(result.segments).toEqual(['A B'])
+  })
+
+  it('stores mimetype uncompressed as the first zip entry', () => {
+    const data = makeEpub({ 'ch1.xhtml': xhtml('<p>Hello</p>') })
+    const rebuilt = parseEpub(data).rebuild(['你好'], true)
+
+    // zip local file header: name at offset 30, compression method at offset 8
+    const name = new TextDecoder().decode(rebuilt.slice(30, 38))
+    expect(name).toBe('mimetype')
+    const method = rebuilt[8] | (rebuilt[9] << 8)
+    expect(method).toBe(0)
+  })
+})
+
 describe('parseEpub (real EPUB)', () => {
   it('extracts a large number of segments', async () => {
     const data = await loadFixtureEpub()
@@ -176,7 +327,18 @@ describe('parseEpub (real EPUB)', () => {
     const translations = result.segments.map((s) => `[翻译] ${s}`)
     const rebuilt = result.rebuild(translations, true)
 
+    // NCX labels are replaced in place (not doubled), content segments double
+    const ncxDoc = new DOMParser().parseFromString(
+      strFromU8(unzipSync(data)['toc.ncx']),
+      'application/xml',
+    )
+    const ncxCount = Array.from(
+      ncxDoc.querySelectorAll('navLabel > text, docTitle > text'),
+    ).filter((el) => el.textContent?.trim()).length
+
     const reparsed = parseEpub(rebuilt)
-    expect(reparsed.segments.length).toBe(result.segments.length * 2)
+    expect(reparsed.segments.length).toBe(
+      (result.segments.length - ncxCount) * 2 + ncxCount,
+    )
   })
 })
