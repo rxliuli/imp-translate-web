@@ -1,85 +1,9 @@
 import { unzipSync, zipSync, strToU8, strFromU8, type Zippable } from 'fflate'
+import { applyTranslations, collectRuns, runText, normalize } from './html'
 
 export interface ParsedEpub {
   segments: string[]
   rebuild(translations: string[], bilingual: boolean): Uint8Array
-}
-
-const XHTML_NS = 'http://www.w3.org/1999/xhtml'
-
-const INLINE_TAGS = new Set([
-  'a', 'abbr', 'b', 'bdi', 'bdo', 'big', 'cite', 'code', 'del', 'dfn',
-  'em', 'font', 'i', 'img', 'ins', 'kbd', 'mark', 'q', 'rp', 'rt', 'ruby',
-  's', 'samp', 'small', 'span', 'strong', 'sub', 'sup', 'time', 'tt', 'u',
-  'var', 'wbr',
-])
-
-const SKIP_TAGS = new Set(['script', 'style', 'template', 'svg', 'math'])
-
-// A run is a maximal sequence of text nodes forming one line of content:
-// inline elements are transparent, <br/> and block elements end the run.
-type Run = Text[]
-
-function collectRuns(root: Element): Run[] {
-  const runs: Run[] = []
-  let current: Run = []
-  function flush() {
-    if (current.some((t) => t.data.trim())) runs.push(current)
-    current = []
-  }
-  function walk(el: Element) {
-    for (const child of Array.from(el.childNodes)) {
-      if (child.nodeType === 3) {
-        current.push(child as Text)
-      } else if (child.nodeType === 1) {
-        const tag = (child as Element).localName
-        if (tag === 'br') {
-          flush()
-        } else if (SKIP_TAGS.has(tag)) {
-          continue
-        } else if (INLINE_TAGS.has(tag)) {
-          walk(child as Element)
-        } else {
-          flush()
-          walk(child as Element)
-          flush()
-        }
-      }
-    }
-  }
-  walk(root)
-  flush()
-  return runs
-}
-
-function normalize(text: string): string {
-  return text.replace(/\s+/g, ' ').trim()
-}
-
-function runText(run: Run): string {
-  return normalize(run.map((t) => t.data).join(''))
-}
-
-function insertBilingual(run: Run, translation: string): void {
-  const last = run[run.length - 1]
-  const doc = last.ownerDocument!
-  const parent = last.parentNode as Element | null
-  if (!parent) return
-  const ns = parent.namespaceURI ?? XHTML_NS
-  const br = doc.createElementNS(ns, 'br')
-  const span = doc.createElementNS(ns, 'span')
-  span.setAttribute('style', 'color: #888;')
-  span.textContent = translation
-  parent.insertBefore(br, last.nextSibling)
-  parent.insertBefore(span, br.nextSibling)
-}
-
-function replaceRun(run: Run, translation: string): void {
-  const target = run.find((t) => t.data.trim()) ?? run[0]
-  for (const t of run) {
-    if (t !== target) t.data = ''
-  }
-  target.data = translation
 }
 
 function parseXml(
@@ -215,14 +139,7 @@ export function parseEpub(data: Uint8Array): ParsedEpub {
             offset += info.segmentCount
             continue
           }
-          const body = doc.querySelector('body') ?? doc.documentElement
-          const runs = collectRuns(body)
-          for (let i = 0; i < runs.length; i++) {
-            const translation = translations[offset + i]?.trim()
-            if (!translation || translation === runText(runs[i])) continue
-            if (bilingual) insertBilingual(runs[i], translation)
-            else replaceRun(runs[i], translation)
-          }
+          applyTranslations(doc, translations, bilingual, offset)
           newFiles[info.path] = strToU8(serializer.serializeToString(doc))
         } else {
           const doc = parseXml(xml)

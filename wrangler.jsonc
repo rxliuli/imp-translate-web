@@ -11,5 +11,8 @@
   },
   "compatibility_flags": [
     "nodejs_compat"
+  ],
+  "routes": [
+    { "pattern": "imp.rxliuli.com/translate/*", "zone_name": "rxliuli.com" }
   ]
 }

@@ -15,6 +15,7 @@ const NAV_LINKS = [
   { to: '/markdown' as const, label: 'Markdown' },
   { to: '/subtitle' as const, label: 'Subtitle' },
   { to: '/epub' as const, label: 'EPUB' },
+  { to: '/html' as const, label: 'HTML' },
 ]
 
 const navLinkClass =
@@ -26,7 +27,7 @@ export const Route = createRootRoute({
       <header className="flex items-center justify-between border-b px-3 py-4 md:px-6">
         <div className="flex items-center gap-3 md:gap-4">
           <div className="flex items-center gap-2">
-            <img src="/icon-128.png" alt="Imp Translate" className="size-6" />
+            <img src={`${import.meta.env.BASE_URL}icon-128.png`} alt="Imp Translate" className="size-6" />
             <h1 className="hidden text-lg font-semibold md:block">Imp Translate</h1>
           </div>
           {/* Desktop nav */}

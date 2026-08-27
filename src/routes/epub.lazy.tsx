@@ -2,7 +2,7 @@ import { createLazyFileRoute } from '@tanstack/react-router'
 import { useState, useRef, useCallback } from 'react'
 import { Loader2, RotateCw, Upload, Download, X } from 'lucide-react'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
-import { LANGUAGES, LANGUAGE_MAP } from '@/lib/languages'
+import { LANGUAGES } from '@/lib/languages'
 import { rpc } from '@/lib/rpc'
 import { parseEpub, type ParsedEpub } from '@/lib/epub'
 import {
@@ -10,6 +10,7 @@ import {
   STORAGE_KEY,
   getDefaultTargetLang,
   useExtensionInstalled,
+  getOutputFilename,
 } from '@/lib/shared'
 import { buttonVariants } from '@/components/ui/button'
 import { zipSync } from 'fflate'
@@ -24,26 +25,6 @@ interface EpubFileState {
   parsed: ParsedEpub
   translations: (string | null)[]
   errors: boolean[]
-}
-
-function getOutputFilename(
-  originalName: string,
-  targetLang: string,
-  bilingual: boolean,
-): string {
-  const suffix = bilingual ? `.${targetLang}.bilingual` : `.${targetLang}`
-  const lastDot = originalName.lastIndexOf('.')
-  if (lastDot === -1) return `${originalName}${suffix}`
-  const ext = originalName.slice(lastDot)
-  const base = originalName.slice(0, lastDot)
-  const secondDot = base.lastIndexOf('.')
-  if (secondDot !== -1) {
-    const langSuffix = base.slice(secondDot + 1)
-    if (langSuffix in LANGUAGE_MAP) {
-      return base.slice(0, secondDot) + suffix + ext
-    }
-  }
-  return base + suffix + ext
 }
 
 function EpubPage() {

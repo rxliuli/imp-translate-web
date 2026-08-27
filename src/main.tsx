@@ -10,7 +10,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
 })
 
 const queryClient = new QueryClient()
-const router = createRouter({ routeTree })
+const router = createRouter({ routeTree, basepath: '/translate' })
 
 declare module '@tanstack/react-router' {
   interface Register {

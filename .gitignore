@@ -30,3 +30,6 @@ dist-ssr
 !.dev.vars.example
 .env*
 !.env.example
+
+# vitest browser failure screenshots
+__screenshots__

@@ -42,6 +42,28 @@ export interface Segment {
   status: 'pending' | 'done' | 'error'
 }
 
+// Translate a source filename into a translated output filename, preserving
+// an existing language suffix: `book.zh.html` -> `book.en.html`.
+export function getOutputFilename(
+  originalName: string,
+  targetLang: string,
+  bilingual: boolean,
+): string {
+  const suffix = bilingual ? `.${targetLang}.bilingual` : `.${targetLang}`
+  const lastDot = originalName.lastIndexOf('.')
+  if (lastDot === -1) return `${originalName}${suffix}`
+  const ext = originalName.slice(lastDot)
+  const base = originalName.slice(0, lastDot)
+  const secondDot = base.lastIndexOf('.')
+  if (secondDot !== -1) {
+    const langSuffix = base.slice(secondDot + 1)
+    if (langSuffix in LANGUAGE_MAP) {
+      return base.slice(0, secondDot) + suffix + ext
+    }
+  }
+  return base + suffix + ext
+}
+
 export function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
   function handleCopy() {

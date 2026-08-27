@@ -15,6 +15,7 @@ import { Route as IndexRouteImport } from './routes/index'
 
 const SubtitleLazyRouteImport = createFileRoute('/subtitle')()
 const MarkdownLazyRouteImport = createFileRoute('/markdown')()
+const HtmlLazyRouteImport = createFileRoute('/html')()
 const EpubLazyRouteImport = createFileRoute('/epub')()
 
 const SubtitleLazyRoute = SubtitleLazyRouteImport.update({
@@ -27,6 +28,11 @@ const MarkdownLazyRoute = MarkdownLazyRouteImport.update({
   path: '/markdown',
   getParentRoute: () => rootRouteImport,
 } as any).lazy(() => import('./routes/markdown.lazy').then((d) => d.Route))
+const HtmlLazyRoute = HtmlLazyRouteImport.update({
+  id: '/html',
+  path: '/html',
+  getParentRoute: () => rootRouteImport,
+} as any).lazy(() => import('./routes/html.lazy').then((d) => d.Route))
 const EpubLazyRoute = EpubLazyRouteImport.update({
   id: '/epub',
   path: '/epub',
@@ -41,12 +47,14 @@ const IndexRoute = IndexRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/epub': typeof EpubLazyRoute
+  '/html': typeof HtmlLazyRoute
   '/markdown': typeof MarkdownLazyRoute
   '/subtitle': typeof SubtitleLazyRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/epub': typeof EpubLazyRoute
+  '/html': typeof HtmlLazyRoute
   '/markdown': typeof MarkdownLazyRoute
   '/subtitle': typeof SubtitleLazyRoute
 }
@@ -54,20 +62,22 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/epub': typeof EpubLazyRoute
+  '/html': typeof HtmlLazyRoute
   '/markdown': typeof MarkdownLazyRoute
   '/subtitle': typeof SubtitleLazyRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/epub' | '/markdown' | '/subtitle'
+  fullPaths: '/' | '/epub' | '/html' | '/markdown' | '/subtitle'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/epub' | '/markdown' | '/subtitle'
-  id: '__root__' | '/' | '/epub' | '/markdown' | '/subtitle'
+  to: '/' | '/epub' | '/html' | '/markdown' | '/subtitle'
+  id: '__root__' | '/' | '/epub' | '/html' | '/markdown' | '/subtitle'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   EpubLazyRoute: typeof EpubLazyRoute
+  HtmlLazyRoute: typeof HtmlLazyRoute
   MarkdownLazyRoute: typeof MarkdownLazyRoute
   SubtitleLazyRoute: typeof SubtitleLazyRoute
 }
@@ -86,6 +96,13 @@ declare module '@tanstack/react-router' {
       path: '/markdown'
       fullPath: '/markdown'
       preLoaderRoute: typeof MarkdownLazyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/html': {
+      id: '/html'
+      path: '/html'
+      fullPath: '/html'
+      preLoaderRoute: typeof HtmlLazyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/epub': {
@@ -108,6 +125,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   EpubLazyRoute: EpubLazyRoute,
+  HtmlLazyRoute: HtmlLazyRoute,
   MarkdownLazyRoute: MarkdownLazyRoute,
   SubtitleLazyRoute: SubtitleLazyRoute,
 }
