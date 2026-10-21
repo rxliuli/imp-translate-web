@@ -13,9 +13,7 @@ import { DISCORD_LINK } from '@/lib/shared'
 const NAV_LINKS = [
   { to: '/' as const, label: 'Text' },
   { to: '/markdown' as const, label: 'Markdown' },
-  { to: '/subtitle' as const, label: 'Subtitle' },
-  { to: '/epub' as const, label: 'EPUB' },
-  { to: '/html' as const, label: 'HTML' },
+  { to: '/files' as const, label: 'Files' },
 ]
 
 const navLinkClass =

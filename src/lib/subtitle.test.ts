@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { parseSrt, parseAss, parseSubtitle } from './subtitle'
+import { getHandler } from './documents'
 
 describe('parseSrt', () => {
   it('parses basic SRT', () => {
@@ -196,5 +197,54 @@ describe('parseSubtitle', () => {
     const content = `1\n00:00:01,000 --> 00:00:04,000\nHello\n`
     const result = parseSubtitle(content, 'VIDEO.SRT')
     expect(result.segments).toEqual(['Hello'])
+  })
+})
+
+describe('subtitle document handler (documents.ts)', () => {
+  it('rebuilds SRT target-only with the translation in place of the source', async () => {
+    const content = `1\n00:00:01,000 --> 00:00:04,000\nHello world\n`
+    const file = new File([content], 'movie.srt', { type: 'text/plain' })
+    const doc = await getHandler(file)!.parse(file)
+    expect(doc.segments).toEqual(['Hello world'])
+    const rebuilt = doc.rebuild(['你好世界'], false)
+    expect(rebuilt).toBe(`1\n00:00:01,000 --> 00:00:04,000\n你好世界\n`)
+  })
+
+  it('rebuilds SRT bilingual by stacking source then translation inside the same cue', async () => {
+    const content = `1\n00:00:01,000 --> 00:00:04,000\nHello world\n`
+    const file = new File([content], 'movie.srt', { type: 'text/plain' })
+    const doc = await getHandler(file)!.parse(file)
+    const rebuilt = doc.rebuild(['你好世界'], true)
+    expect(rebuilt).toBe(
+      `1\n00:00:01,000 --> 00:00:04,000\nHello world\n你好世界\n`,
+    )
+  })
+
+  it('rebuilds ASS target-only, replacing the dialogue text', async () => {
+    const content = `[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,Hello world`
+    const file = new File([content], 'movie.ass', { type: 'text/plain' })
+    const doc = await getHandler(file)!.parse(file)
+    const rebuilt = doc.rebuild(['你好世界'], false)
+    expect(rebuilt).toContain(
+      'Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,你好世界',
+    )
+  })
+
+  it('rebuilds ASS bilingual using \\N to join source and translation on one line', async () => {
+    const content = `[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,Hello world`
+    const file = new File([content], 'movie.ass', { type: 'text/plain' })
+    const doc = await getHandler(file)!.parse(file)
+    const rebuilt = doc.rebuild(['你好世界'], true)
+    expect(rebuilt).toContain(
+      'Dialogue: 0,0:00:01.00,0:00:04.00,Default,,0,0,0,,Hello world\\N你好世界',
+    )
+  })
+
+  it('falls back to the source cue when a translation is missing', async () => {
+    const content = `1\n00:00:01,000 --> 00:00:04,000\nHello world\n`
+    const file = new File([content], 'movie.srt', { type: 'text/plain' })
+    const doc = await getHandler(file)!.parse(file)
+    const rebuilt = doc.rebuild([undefined], true)
+    expect(rebuilt).toBe(content)
   })
 })
