@@ -5,15 +5,14 @@ import { buttonVariants } from '@/components/ui/button'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Textarea } from '@/components/ui/textarea'
 import { LANGUAGES } from '@/lib/languages'
-import { rpc } from '@/lib/rpc'
 import { splitSegments, buildSourceRanges } from '@/lib/segments'
+import { useTranslationRun } from '@/lib/useTranslationRun'
 import {
   EXTENSION_LINK,
   STORAGE_KEY,
   getDefaultTargetLang,
   useExtensionInstalled,
   CopyButton,
-  type Segment,
 } from '@/lib/shared'
 
 export const Route = createFileRoute('/')({
@@ -24,99 +23,20 @@ function HomePage() {
   const extensionInstalled = useExtensionInstalled()
   const [targetLang, setTargetLang] = useState(getDefaultTargetLang)
   const [sourceText, setSourceText] = useState('')
-  const [segments, setSegments] = useState<Segment[]>([])
+  const { segments, translate, retryFailed } = useTranslationRun()
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null)
-  const translateIdRef = useRef(0)
 
-  function translateSegments(text: string, to: string) {
+  function translateSegments(text: string, to: string, newRun = false) {
     if (!extensionInstalled) return
-    const sources = splitSegments(text)
-    if (sources.length === 0) {
-      setSegments([])
-      return
-    }
-
-    const id = ++translateIdRef.current
-
-    setSegments((prev) =>
-      sources.map((source) => {
-        const existing = prev.find(
-          (s) => s.source === source && s.status === 'done',
-        )
-        if (existing) return existing
-        return { source, translated: '', status: 'pending' as const }
-      }),
-    )
-
-    sources.forEach((source, i) => {
-      rpc
-        .sendMessage('translate', { texts: [source], to })
-        .then((results) => {
-          if (translateIdRef.current !== id) return
-          setSegments((prev) =>
-            prev.map((seg, j) =>
-              j === i && seg.source === source
-                ? { ...seg, translated: results[0] ?? '', status: 'done' }
-                : seg,
-            ),
-          )
-        })
-        .catch(() => {
-          if (translateIdRef.current !== id) return
-          setSegments((prev) =>
-            prev.map((seg, j) =>
-              j === i && seg.source === source
-                ? { ...seg, status: 'error' }
-                : seg,
-            ),
-          )
-        })
-    })
-  }
-
-  function retryAllFailed() {
-    const failedIndices = segments
-      .map((s, i) => (s.status === 'error' ? i : -1))
-      .filter((i) => i !== -1)
-    if (failedIndices.length === 0) return
-
-    setSegments((prev) =>
-      prev.map((s) =>
-        s.status === 'error' ? { ...s, status: 'pending' as const } : s,
-      ),
-    )
-
-    failedIndices.forEach((i) => {
-      const seg = segments[i]
-      rpc
-        .sendMessage('translate', { texts: [seg.source], to: targetLang })
-        .then((results) => {
-          setSegments((prev) =>
-            prev.map((s, j) =>
-              j === i && s.source === seg.source
-                ? { ...s, translated: results[0] ?? '', status: 'done' }
-                : s,
-            ),
-          )
-        })
-        .catch(() => {
-          setSegments((prev) =>
-            prev.map((s, j) =>
-              j === i && s.source === seg.source
-                ? { ...s, status: 'error' }
-                : s,
-            ),
-          )
-        })
-    })
+    translate(splitSegments(text), to, newRun)
   }
 
   function handleSourceChange(value: string) {
     setSourceText(value)
     if (debounceRef.current) clearTimeout(debounceRef.current)
     if (!value.trim()) {
-      setSegments([])
+      translate([], targetLang)
       return
     }
     debounceRef.current = setTimeout(() => {
@@ -128,7 +48,7 @@ function HomePage() {
     setTargetLang(value)
     localStorage.setItem(STORAGE_KEY, value)
     if (sourceText.trim()) {
-      translateSegments(sourceText, value)
+      translateSegments(sourceText, value, true)
     }
   }
 
@@ -246,12 +166,18 @@ function HomePage() {
                       <Loader2 className="inline size-4 animate-spin text-muted-foreground" />
                     ) : seg.status === 'error' ? (
                       <span
-                        role="button"
-                        onClick={retryAllFailed}
-                        className="inline-flex cursor-pointer items-center gap-1 text-destructive hover:text-destructive/80"
+                        role="alert"
+                        className="inline-flex items-center gap-1 text-destructive"
                       >
-                        Translation failed
-                        <RotateCw className="size-3" />
+                        {seg.error ?? 'Translation failed'}
+                        <button
+                          type="button"
+                          onClick={() => retryFailed(targetLang)}
+                          className="inline-flex cursor-pointer items-center gap-1 underline hover:text-destructive/80"
+                        >
+                          Retry
+                          <RotateCw className="size-3" />
+                        </button>
                       </span>
                     ) : (
                       seg.translated

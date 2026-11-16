@@ -1,7 +1,7 @@
 // Shared upload/queue/progress/retry/download logic for the /files route.
-// Translates every file's segments in BATCH_SIZE chunks, running up to
-// FILE_CONCURRENCY files at once (mirrors the queue previously duplicated in
-// epub.lazy.tsx and html.lazy.tsx).
+// Translates every file's segments in fixed-size, fixed-budget request batches,
+// running up to FILE_CONCURRENCY files at once (mirrors the queue previously
+// duplicated in epub.lazy.tsx and html.lazy.tsx).
 
 import { useEffect, useRef, useState } from 'react'
 import { zipSync } from 'fflate'
@@ -14,6 +14,8 @@ import {
   type ParsedDocument,
 } from './documents'
 import { getOutputFilename } from './shared'
+import { splitLongText } from './segments'
+import { toErrorMessage } from './translationRun'
 
 export type FileStatus =
   | 'queued'
@@ -36,8 +38,94 @@ export interface FileItem {
   errors: boolean[]
 }
 
-const BATCH_SIZE = 20
+export const BATCH_SIZE = 20
 const FILE_CONCURRENCY = 5
+// The extension/server accepts at most 20,000 chars of `texts` per request, so
+// batches are bounded by both item count and total characters. A segment may be
+// longer than this (html, epub and subtitle have no structural cut point inside
+// a run), which is why `packBatches` splits it into pieces first.
+export const MAX_CHARS_PER_REQUEST = 20000
+
+/** One `translateBatch` request: `texts[k]` translates source segment `segments[k]`. */
+export interface Batch {
+  segments: number[]
+  texts: string[]
+}
+
+export interface RequestPlan {
+  /** Requests to send in order; none exceeds either request bound. */
+  batches: Batch[]
+  /** How many pieces each requested source segment was split into. */
+  piecesPerSegment: Map<number, number>
+}
+
+/**
+ * Partition `indices` into request batches that respect BATCH_SIZE items and
+ * MAX_CHARS_PER_REQUEST characters, preserving input order. A segment longer
+ * than MAX_CHARS_PER_SEGMENT is split into pieces first, because only the text
+ * and markdown handlers cut long segments at a structural boundary — html, epub
+ * and subtitle segments can be arbitrarily long. Every piece is at most
+ * MAX_CHARS_PER_SEGMENT chars, which is under MAX_CHARS_PER_REQUEST, so a
+ * one-item batch always fits and no batch can go over budget. `Batch.segments`
+ * says which source segment each text belongs to, so the caller can rejoin the
+ * pieces with `accumulateBatchResults`.
+ */
+export function packBatches(
+  segments: readonly string[],
+  indices: readonly number[],
+): RequestPlan {
+  const batches: Batch[] = []
+  const piecesPerSegment = new Map<number, number>()
+  let batch: Batch = { segments: [], texts: [] }
+  let chars = 0
+  for (const index of indices) {
+    for (const text of splitLongText(segments[index] ?? '')) {
+      if (
+        batch.texts.length > 0 &&
+        (batch.texts.length >= BATCH_SIZE || chars + text.length > MAX_CHARS_PER_REQUEST)
+      ) {
+        batches.push(batch)
+        batch = { segments: [], texts: [] }
+        chars = 0
+      }
+      batch.segments.push(index)
+      batch.texts.push(text)
+      chars += text.length
+      piecesPerSegment.set(index, (piecesPerSegment.get(index) ?? 0) + 1)
+    }
+  }
+  if (batch.texts.length > 0) batches.push(batch)
+  return { batches, piecesPerSegment }
+}
+
+/**
+ * Fold one batch's results into the pieces translated so far, returning the
+ * source segments whose last piece just arrived (keyed by segment index, in
+ * batch order). `pending` is mutated: a segment's collected pieces are dropped
+ * once its translation is complete, so a caller never publishes a segment after
+ * only part of its pieces came back.
+ */
+export function accumulateBatchResults(
+  pending: Map<number, string[]>,
+  piecesPerSegment: ReadonlyMap<number, number>,
+  batch: Batch,
+  results: readonly string[],
+): Map<number, string> {
+  const settled = new Map<number, string>()
+  batch.segments.forEach((segment, i) => {
+    const pieces = pending.get(segment) ?? []
+    // A short response keeps the text we sent for the missing piece, mirroring
+    // how the queue has always fallen back to the source.
+    pieces.push(results[i] ?? batch.texts[i])
+    if (pieces.length === piecesPerSegment.get(segment)) {
+      settled.set(segment, pieces.join(''))
+      pending.delete(segment)
+    } else {
+      pending.set(segment, pieces)
+    }
+  })
+  return settled
+}
 
 function computeStatus(f: FileItem): FileStatus {
   // 'parsing', 'unsupported' and 'queued' aren't derivable from
@@ -89,6 +177,9 @@ export function useFileTranslation(targetLang: string, bilingual: boolean, exten
   const [isRetrying, setIsRetrying] = useState(false)
 
   function drain() {
+    // Every queued task translates one file through packBatches(), so no
+    // matter how many of the FILE_CONCURRENCY slots run at once, each request
+    // stays within the extension's item/char budget.
     while (runningRef.current < FILE_CONCURRENCY && queueRef.current.length > 0) {
       const task = queueRef.current.shift()!
       runningRef.current++
@@ -120,31 +211,39 @@ export function useFileTranslation(targetLang: string, bilingual: boolean, exten
     indices: number[],
     lang: string,
   ) {
-    for (let start = 0; start < indices.length; start += BATCH_SIZE) {
-      const batchIndices = indices.slice(start, start + BATCH_SIZE)
-      const batchTexts = batchIndices.map((i) => segments[i])
+    const { batches, piecesPerSegment } = packBatches(segments, indices)
+    // The pieces of one segment can land in different batches, so the translated
+    // pieces wait here until the last one arrives: `translations[i]` must never
+    // hold a truncated translation (nor count as done in `progress`).
+    const pending = new Map<number, string[]>()
+
+    for (const batch of batches) {
       try {
         const results = await rpc.sendMessage('translateBatch', {
-          texts: batchTexts,
+          texts: batch.texts,
           to: lang,
         })
+        const settled = accumulateBatchResults(pending, piecesPerSegment, batch, results)
         updateFile(id, (f) => {
           const translations = [...f.translations]
           const errors = [...f.errors]
-          batchIndices.forEach((idx, j) => {
-            translations[idx] = results[j] ?? batchTexts[j]
-            errors[idx] = false
+          settled.forEach((translation, segment) => {
+            translations[segment] = translation
+            errors[segment] = false
           })
           const done = translations.filter((t) => t !== undefined).length
           return { ...f, translations, errors, progress: { ...f.progress, done } }
         })
-      } catch {
+      } catch (err) {
+        const message = toErrorMessage(err)
+        // Drop the pieces this batch carried so a retry re-sends whole segments.
+        for (const segment of batch.segments) pending.delete(segment)
         updateFile(id, (f) => {
           const errors = [...f.errors]
-          batchIndices.forEach((idx) => {
-            errors[idx] = true
+          batch.segments.forEach((segment) => {
+            errors[segment] = true
           })
-          return { ...f, errors }
+          return { ...f, errors, error: message }
         })
       }
     }
@@ -256,7 +355,7 @@ export function useFileTranslation(targetLang: string, bilingual: boolean, exten
       updateFile(f.id, (ff) => {
         const errors = [...ff.errors]
         failedIndices.forEach((i) => (errors[i] = false))
-        return { ...ff, errors }
+        return { ...ff, errors, error: undefined }
       })
 
       enqueue(() =>

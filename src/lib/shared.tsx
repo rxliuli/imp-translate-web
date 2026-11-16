@@ -40,6 +40,8 @@ export interface Segment {
   source: string
   translated: string
   status: 'pending' | 'done' | 'error'
+  /** Failure reason from the extension, shown in place of the translation. */
+  error?: string
 }
 
 // Translate a source filename into a translated output filename, preserving

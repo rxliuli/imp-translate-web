@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { splitSegments, buildSourceRanges, splitMarkdownBlocks } from './segments'
+import {
+  splitSegments,
+  buildSourceRanges,
+  splitMarkdownBlocks,
+  MAX_CHARS_PER_SEGMENT,
+} from './segments'
 
 describe('splitSegments', () => {
   it('splits by newline, filters empty lines', () => {
@@ -29,7 +34,8 @@ describe('buildSourceRanges', () => {
       { start: 6, end: 11, separator: '' },
     ])
     expect(text.slice(ranges[0].start, ranges[0].end)).toBe('hello')
-    expect(text.slice(ranges[1].start, ranges[1].end)).toBe('world')
+    expect(text.slice(ranges[1].start, ranges[1].end).trim()).toBe('world')
+    expect(ranges[1].end).toBe(text.length)
   })
 
   it('collapses empty lines into previous separator', () => {
@@ -61,6 +67,7 @@ describe('buildSourceRanges', () => {
       }
     })
     const segments = splitSegments(text)
+    expect(reconstructed).toBe(text)
     expect(ranges.length).toBe(segments.length)
   })
 
@@ -246,5 +253,122 @@ describe('splitMarkdownBlocks', () => {
       { text: '1) first', translatable: true },
       { text: '2) second', translatable: true },
     ])
+  })
+})
+
+describe('splitSegments long lines', () => {
+  it('splits a 30,000-char line into pieces of at most 4000 chars', () => {
+    const line = 'word '.repeat(6000)
+    expect(line.length).toBe(30000)
+    const pieces = splitSegments(line)
+    expect(pieces.length).toBeGreaterThan(1)
+    expect(pieces.every((piece) => piece.length <= MAX_CHARS_PER_SEGMENT)).toBe(
+      true,
+    )
+    expect(pieces.join('')).toBe(line)
+  })
+
+  it('never cuts inside a word when a boundary is available', () => {
+    const line = 'alpha bravo charlie delta '.repeat(1200)
+    const pieces = splitSegments(line)
+    expect(pieces.length).toBeGreaterThan(1)
+    // Every piece but the last ends on the whitespace that followed a word.
+    expect(pieces.slice(0, -1).every((piece) => piece.endsWith(' '))).toBe(true)
+    expect(pieces.join('')).toBe(line)
+  })
+
+  it('hard-cuts a single word longer than the budget without losing text', () => {
+    const line = 'x'.repeat(30000)
+    const pieces = splitSegments(line)
+    expect(pieces.every((piece) => piece.length <= MAX_CHARS_PER_SEGMENT)).toBe(
+      true,
+    )
+    expect(pieces.join('')).toBe(line)
+  })
+
+  it('prefers a sentence boundary', () => {
+    const line = `${'A'.repeat(3990)}.${'B'.repeat(20)}`
+    const pieces = splitSegments(line)
+    expect(pieces[0]).toBe(`${'A'.repeat(3990)}.`)
+    expect(pieces.join('')).toBe(line)
+  })
+
+  it('keeps short lines untouched', () => {
+    expect(splitSegments('one line\nand another')).toEqual([
+      'one line',
+      'and another',
+    ])
+  })
+})
+
+describe('buildSourceRanges long lines', () => {
+  it('maps each long-line piece to a range that rebuilds the original', () => {
+    const text = `intro\n${'word '.repeat(6000)}\noutro`
+    const ranges = buildSourceRanges(text)
+    expect(ranges.length).toBe(splitSegments(text).length)
+    expect(ranges.length).toBeGreaterThan(3)
+    const rebuilt = ranges
+      .map((range) => text.slice(range.start, range.end) + range.separator)
+      .join('')
+    expect(rebuilt).toBe(text)
+  })
+})
+
+/** Join the ranges back into source text, the way the text handler rebuilds. */
+function rebuildFromRanges(text: string) {
+  return buildSourceRanges(text)
+    .map((range) => text.slice(range.start, range.end) + range.separator)
+    .join('')
+}
+
+describe('whitespace runs at a piece boundary', () => {
+  const cases: [string, string][] = [
+    ['a leading run longer than the budget', ' '.repeat(5000) + 'hello'],
+    ['a trailing run at the budget', 'word' + ' '.repeat(4000)],
+    ['a run in the middle of a line', 'hello' + ' '.repeat(10000) + 'world'],
+    ['leading blank lines before a long line', '\n\n' + ' '.repeat(5000) + 'hello'],
+  ]
+
+  for (const [name, text] of cases) {
+    it(`keeps segments and ranges in step for ${name}`, () => {
+      const segments = splitSegments(text)
+      const ranges = buildSourceRanges(text)
+      expect(ranges.length).toBe(segments.length)
+      // A whitespace-only segment would be a junk request and, worse, would
+      // shift every later `translations[i]` in the text handler.
+      expect(segments.filter((segment) => !segment.trim())).toEqual([])
+      expect(segments.every((segment) => segment.length <= MAX_CHARS_PER_SEGMENT)).toBe(
+        true,
+      )
+      expect(rebuildFromRanges(text)).toBe(text)
+    })
+  }
+
+  it('folds the leading run into the first range instead of a blank segment', () => {
+    const text = ' '.repeat(5000) + 'hello'
+    expect(splitSegments(text)).toEqual([' '.repeat(1000) + 'hello'])
+    expect(buildSourceRanges(text)).toEqual([
+      { start: 0, end: 5005, separator: '' },
+    ])
+  })
+
+  it('folds the trailing run into the previous separator', () => {
+    const text = 'word' + ' '.repeat(4000)
+    expect(splitSegments(text)).toEqual(['word' + ' '.repeat(3996)])
+    expect(buildSourceRanges(text)).toEqual([
+      { start: 0, end: 4000, separator: ' '.repeat(4) },
+    ])
+  })
+
+  it('folds a blank piece in the middle into the previous separator', () => {
+    const text = 'hello' + ' '.repeat(10000) + 'world'
+    const ranges = buildSourceRanges(text)
+    expect(ranges.length).toBe(2)
+    expect(text.slice(ranges[0].start, ranges[0].end).trim()).toBe('hello')
+    expect(ranges[0].separator.trim()).toBe('')
+    expect(text.slice(ranges[0].end, ranges[0].end + ranges[0].separator.length))
+      .toBe(' '.repeat(4000))
+    expect(text.slice(ranges[1].start, ranges[1].end).trim()).toBe('world')
+    expect(ranges[1].end).toBe(text.length)
   })
 })

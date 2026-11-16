@@ -208,37 +208,48 @@ function FileRow({
           </div>
 
           {status === 'unsupported' ? (
-            <p className="mt-1 text-xs text-destructive">{item.error}</p>
-          ) : status === 'error' && item.error ? (
-            <p className="mt-1 text-xs text-destructive">{item.error}</p>
+            <p role="alert" className="mt-1 text-xs text-destructive">
+              {item.error}
+            </p>
+          ) : status === 'error' && item.error && errorCount === 0 ? (
+            <p role="alert" className="mt-1 text-xs text-destructive">
+              {item.error}
+            </p>
           ) : (
-            <div className="mt-1.5 flex items-center gap-2">
-              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-                <div
-                  className={`h-full rounded-full transition-all ${
-                    status === 'error'
-                      ? 'bg-destructive'
-                      : status === 'done'
-                        ? 'bg-green-500'
-                        : 'bg-primary'
-                  }`}
-                  style={{ width: `${progressPct}%` }}
-                />
+            <>
+              <div className="mt-1.5 flex items-center gap-2">
+                <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className={`h-full rounded-full transition-all ${
+                      status === 'error'
+                        ? 'bg-destructive'
+                        : status === 'done'
+                          ? 'bg-green-500'
+                          : 'bg-primary'
+                    }`}
+                    style={{ width: `${progressPct}%` }}
+                  />
+                </div>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {status === 'error' ? (
+                    <span className="text-destructive">{errorCount} failed</span>
+                  ) : status === 'done' ? (
+                    'Done'
+                  ) : status === 'parsing' ? (
+                    'Parsing…'
+                  ) : status === 'queued' ? (
+                    'Queued'
+                  ) : (
+                    `${progress.done}/${progress.total}`
+                  )}
+                </span>
               </div>
-              <span className="shrink-0 text-xs text-muted-foreground">
-                {status === 'error' ? (
-                  <span className="text-destructive">{errorCount} failed</span>
-                ) : status === 'done' ? (
-                  'Done'
-                ) : status === 'parsing' ? (
-                  'Parsing…'
-                ) : status === 'queued' ? (
-                  'Queued'
-                ) : (
-                  `${progress.done}/${progress.total}`
-                )}
-              </span>
-            </div>
+              {status === 'error' && item.error && (
+                <p role="alert" className="mt-1 text-xs text-destructive">
+                  {item.error}
+                </p>
+              )}
+            </>
           )}
         </div>
 
