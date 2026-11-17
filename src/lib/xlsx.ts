@@ -11,6 +11,7 @@
 // module does not rewrite is copied into the new zip byte for byte.
 
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
+import { classifyColumn } from './columns'
 import {
   applySplices,
   withPreserve,
@@ -268,43 +269,6 @@ function parseStringCells(xml: string, sheetPath: string): StringCell[] {
   return cells
 }
 
-// A "word" for column inference. CJK text has no spaces, so a whole Chinese
-// sentence would otherwise count as one word and its column would look like a
-// label column; each CJK character counts as a word instead.
-const CJK_RE = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]/g
-
-function wordCount(text: string): number {
-  const tokens = text.split(/\s+/).filter(Boolean).length
-  return tokens + (text.match(CJK_RE)?.length ?? 0)
-}
-
-const ACCOUNT_TOKEN_RE = /[_-]|\d/
-
-/**
- * Whether a column holds prose. Three shapes are rejected because translating
- * them wastes requests and produces nonsense in cells that the workbook uses as
- * keys: enumerations, identifier/account columns, and single-word labels.
- */
-function columnTranslatable(values: string[]): boolean {
-  const distinct = new Set(values)
-  // Enumeration: a handful of repeated values (Complete/Unread/N/TBA).
-  if (distinct.size <= 3) return false
-  // Account names and IDs: short, almost all unique, and shaped like a token.
-  const longest = Math.max(...values.map((value) => value.length))
-  if (
-    longest <= 32 &&
-    distinct.size / values.length > 0.95 &&
-    values.every((value) => ACCOUNT_TOKEN_RE.test(value))
-  ) {
-    return false
-  }
-  // Single-word labels (names, tags).
-  const averageWords =
-    values.reduce((sum, value) => sum + wordCount(value), 0) / values.length
-  if (averageWords < 2) return false
-  return true
-}
-
 function decisionKey(sheetPath: string, column: string): string {
   return `${sheetPath}!${column}`
 }
@@ -323,7 +287,7 @@ function decideColumns(
     else values.set(key, [entry.text])
   }
   const decisions = new Map<string, boolean>()
-  for (const [key, list] of values) decisions.set(key, columnTranslatable(list))
+  for (const [key, list] of values) decisions.set(key, classifyColumn(list).translatable)
   return decisions
 }
 

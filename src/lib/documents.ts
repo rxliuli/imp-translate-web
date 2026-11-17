@@ -3,6 +3,7 @@
 // to know the specifics of any one format.
 
 import { strToU8 } from 'fflate'
+import { parseCsv } from './csv'
 import { parseDocx } from './docx'
 import { parseEpub } from './epub'
 import { parseHtml, applyTranslations } from './html'
@@ -33,6 +34,7 @@ export type DocumentKind =
   | 'subtitle'
   | 'spreadsheet'
   | 'docx'
+  | 'csv'
 
 export interface DocumentHandler {
   kind: DocumentKind
@@ -214,7 +216,22 @@ const docxHandler: DocumentHandler = {
   },
 }
 
+const csvHandler: DocumentHandler = {
+  kind: 'csv',
+  extensions: ['.csv'],
+  async parse(file) {
+    const data = new Uint8Array(await file.arrayBuffer())
+    const parsed = parseCsv(data)
+    return {
+      segments: parsed.segments,
+      mimeType: 'text/csv',
+      rebuild: (translations, bilingual) => parsed.rebuild(translations, bilingual),
+    }
+  },
+}
+
 const HANDLERS: DocumentHandler[] = [
+  csvHandler,
   docxHandler,
   epubHandler,
   htmlHandler,
