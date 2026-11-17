@@ -19,7 +19,7 @@ export const Route = createLazyFileRoute('/files')({
   component: FilesPage,
 })
 
-const ACCEPT = '.epub,.html,.htm,.md,.markdown,.txt,.srt,.ass,.ssa'
+const ACCEPT = '.epub,.html,.htm,.md,.markdown,.txt,.srt,.ass,.ssa,.xlsx'
 
 function FilesPage() {
   const extensionInstalled = useExtensionInstalled()
@@ -87,7 +87,8 @@ function FilesPage() {
         <div>
           <p className="text-sm font-medium">Drop files here or click to browse</p>
           <p className="text-xs text-muted-foreground">
-            Supports .epub, .html, .htm, .md, .markdown, .txt, .srt, .ass, .ssa
+            Supports .epub, .html, .htm, .md, .markdown, .txt, .srt, .ass, .ssa,
+            .xlsx
           </p>
         </div>
         <input
@@ -153,6 +154,7 @@ const KIND_LABELS: Record<DocumentKind, string> = {
   markdown: 'Markdown',
   text: 'Text',
   subtitle: 'Subtitle',
+  spreadsheet: 'Spreadsheet',
 }
 
 function KindBadge({ kind }: { kind: FileItem['kind'] }) {

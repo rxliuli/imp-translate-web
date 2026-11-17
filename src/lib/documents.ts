@@ -6,6 +6,7 @@ import { strToU8 } from 'fflate'
 import { parseEpub } from './epub'
 import { parseHtml, applyTranslations } from './html'
 import { parseSubtitle } from './subtitle'
+import { parseXlsx } from './xlsx'
 import { splitMarkdownBlocks, splitSegments, buildSourceRanges } from './segments'
 
 export interface ParsedDocument {
@@ -23,7 +24,13 @@ export interface ParsedDocument {
   mimeType: string
 }
 
-export type DocumentKind = 'epub' | 'html' | 'markdown' | 'text' | 'subtitle'
+export type DocumentKind =
+  | 'epub'
+  | 'html'
+  | 'markdown'
+  | 'text'
+  | 'subtitle'
+  | 'spreadsheet'
 
 export interface DocumentHandler {
   kind: DocumentKind
@@ -171,10 +178,28 @@ const textHandler: DocumentHandler = {
   },
 }
 
+const spreadsheetHandler: DocumentHandler = {
+  kind: 'spreadsheet',
+  // No .xlsm: re-zipping drops the VBA signature and silently yields a corrupt
+  // macro workbook.
+  extensions: ['.xlsx'],
+  async parse(file) {
+    const data = new Uint8Array(await file.arrayBuffer())
+    const parsed = parseXlsx(data)
+    return {
+      segments: parsed.segments,
+      mimeType:
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      rebuild: (translations, bilingual) => parsed.rebuild(translations, bilingual),
+    }
+  },
+}
+
 const HANDLERS: DocumentHandler[] = [
   epubHandler,
   htmlHandler,
   markdownHandler,
+  spreadsheetHandler,
   subtitleHandler,
   textHandler,
 ]
