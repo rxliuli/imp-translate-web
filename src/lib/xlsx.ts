@@ -30,7 +30,6 @@ const WORKSHEET_PATH_RE = /^xl\/worksheets\/[^/]+\.xml$/
 
 /** Why a shared string is left alone; also the categories the debug line counts. */
 type SkipReason =
-  | 'rich-text'
   | 'phonetic'
   | 'empty'
   | 'not-simple'
@@ -43,14 +42,29 @@ interface TextElement {
   openStart: number
   openEnd: number
   closeStart: number
+  /** Offset just past `</t>`; equal to `openEnd` for a self-closing `<t/>`. */
+  closeEnd: number
   openTag: string
 }
 
+/** One `<r>` of a rich-text `<si>`: the formatting it carries and its text. */
+interface RichTextRun {
+  /** The run's `<rPr>…</rPr>` verbatim, '' when it has none. */
+  rPr: string
+  /** The run's `<t>`; null when the run holds no text element. */
+  t: TextElement | null
+}
+
 interface SharedStringEntry {
-  /** Unescaped plain text; '' when the entry is not a single simple `<t>`. */
+  /** Unescaped text: the `<t>` of a plain entry, or every run's `<t>` merged. */
   text: string
   skip: SkipReason | null
+  /** The single `<t>` of a plain `<si>`; null for a rich-text entry. */
   t: TextElement | null
+  /** The runs of a rich-text `<si>`, in document order; null for a plain one. */
+  runs: RichTextRun[] | null
+  /** Offset of the `</si>` that closes the entry, where a bilingual run goes. */
+  siEnd: number
 }
 
 interface StringCell {
@@ -71,11 +85,11 @@ function isUrlOrEmail(text: string): boolean {
 }
 
 /**
- * Every `<si>` of `sharedStrings.xml`, in table order, with the offsets of its
- * single `<t>` element. A `<si>` is only usable when it holds exactly one `<t>`:
- * rich-text runs (`<r>`) and phonetic hints (`<rPh>`) would need per-run
- * translation to keep their formatting, and this handler only ever rewrites a
- * plain text node.
+ * Every `<si>` of `sharedStrings.xml`, in table order. A `<si>` holds either a
+ * single plain `<t>` or a sequence of rich-text runs, and both are translatable:
+ * the runs are kept verbatim so their formatting (a link's blue underline, a
+ * bold title) survives the rewrite. Phonetic hints (`<rPh>`) are the one shape
+ * this handler still leaves alone.
  */
 function parseSharedStrings(xml: string): SharedStringEntry[] {
   const entries: SharedStringEntry[] = []
@@ -86,7 +100,7 @@ function parseSharedStrings(xml: string): SharedStringEntry[] {
   while ((match = openRe.exec(xml))) {
     const innerStart = match.index + match[0].length
     if (match[2] === '/') {
-      entries.push({ text: '', skip: 'empty', t: null })
+      entries.push(skippedEntry('empty', innerStart))
       continue
     }
     const innerEnd = xml.indexOf('</si>', innerStart)
@@ -97,42 +111,131 @@ function parseSharedStrings(xml: string): SharedStringEntry[] {
   return entries
 }
 
+function skippedEntry(skip: SkipReason, siEnd: number): SharedStringEntry {
+  return { text: '', skip, t: null, runs: null, siEnd }
+}
+
 function readSharedString(
   xml: string,
   innerStart: number,
   innerEnd: number,
 ): SharedStringEntry {
   const inner = xml.slice(innerStart, innerEnd)
-  if (/<rPh[\s/>]/.test(inner)) return { text: '', skip: 'phonetic', t: null }
-  if (/<\/?r[\s/>]/.test(inner)) return { text: '', skip: 'rich-text', t: null }
+  if (/<rPh[\s/>]/.test(inner)) return skippedEntry('phonetic', innerEnd)
+  if (/<r[\s/>]/.test(inner)) return readRichText(xml, innerStart, innerEnd)
 
   const tRe = /<t(\s[^>]*?)?(\/)?>/g
   const tMatch = tRe.exec(inner)
-  if (!tMatch) return { text: '', skip: 'empty', t: null }
-  if (tRe.exec(inner)) return { text: '', skip: 'not-simple', t: null }
-  if (tMatch[2] === '/') return { text: '', skip: 'empty', t: null }
+  if (!tMatch) return skippedEntry('empty', innerEnd)
+  if (tRe.exec(inner)) return skippedEntry('not-simple', innerEnd)
+  if (tMatch[2] === '/') return skippedEntry('empty', innerEnd)
 
   const openStart = innerStart + tMatch.index
   const openEnd = openStart + tMatch[0].length
   const closeStart = xml.indexOf('</t>', openEnd)
-  if (closeStart === -1) return { text: '', skip: 'not-simple', t: null }
+  if (closeStart === -1 || closeStart > innerEnd) return skippedEntry('not-simple', innerEnd)
   // Anything besides whitespace around the `<t>` means the `<si>` wraps more
   // than one element, which this handler does not know how to rewrite.
-  if (inner.slice(0, tMatch.index).trim()) return { text: '', skip: 'not-simple', t: null }
-  if (xml.slice(closeStart + '</t>'.length, innerEnd).trim()) {
-    return { text: '', skip: 'not-simple', t: null }
-  }
+  if (inner.slice(0, tMatch.index).trim()) return skippedEntry('not-simple', innerEnd)
+  const closeEnd = closeStart + '</t>'.length
+  if (xml.slice(closeEnd, innerEnd).trim()) return skippedEntry('not-simple', innerEnd)
 
   const text = xmlUnescape(xml.slice(openEnd, closeStart))
   const trimmed = text.trim()
-  if (!trimmed) return { text: '', skip: 'empty', t: null }
-  if (isUrlOrEmail(trimmed)) return { text: '', skip: 'url-or-email', t: null }
+  if (!trimmed) return skippedEntry('empty', innerEnd)
+  if (isUrlOrEmail(trimmed)) return skippedEntry('url-or-email', innerEnd)
 
   return {
     text,
     skip: null,
-    t: { openStart, openEnd, closeStart, openTag: tMatch[0] },
+    t: { openStart, openEnd, closeStart, closeEnd, openTag: tMatch[0] },
+    runs: null,
+    siEnd: innerEnd,
   }
+}
+
+/**
+ * One `<r>` of a rich-text `<si>`. `null` means the run holds something this
+ * handler cannot write back without losing text (an unclosed tag, or the
+ * several `<t>` elements Excel never produces).
+ */
+function readRun(xml: string, innerStart: number, innerEnd: number): RichTextRun | null {
+  const inner = xml.slice(innerStart, innerEnd)
+  let rPr = ''
+  const rPrMatch = /<rPr(\s[^>]*?)?(\/)?>/.exec(inner)
+  if (rPrMatch) {
+    const start = innerStart + rPrMatch.index
+    const openEnd = start + rPrMatch[0].length
+    if (rPrMatch[2] !== '/') {
+      const close = xml.indexOf('</rPr>', openEnd)
+      if (close === -1 || close > innerEnd) return null
+      rPr = xml.slice(start, close + '</rPr>'.length)
+    } else {
+      rPr = rPrMatch[0]
+    }
+  }
+
+  // Lazy attribute matcher, so a self-closing `<t/>` leaves `/` for group 2
+  // instead of swallowing it into the attributes.
+  const tRe = /<t(\s[^>]*?)?(\/)?>/g
+  const tMatch = tRe.exec(inner)
+  if (!tMatch) return { rPr, t: null }
+  if (tRe.exec(inner)) return null
+
+  const openStart = innerStart + tMatch.index
+  const openEnd = openStart + tMatch[0].length
+  if (tMatch[2] === '/') {
+    const t = { openStart, openEnd, closeStart: openEnd, closeEnd: openEnd, openTag: tMatch[0] }
+    return { rPr, t }
+  }
+  const close = xml.indexOf('</t>', openEnd)
+  if (close === -1 || close > innerEnd) return null
+  const closeEnd = close + '</t>'.length
+  return { rPr, t: { openStart, openEnd, closeStart: close, closeEnd, openTag: tMatch[0] } }
+}
+
+/**
+ * A `<si>` written as rich-text runs, e.g. a sentence with a blue underlined
+ * title in the middle. The runs are recorded verbatim — only the text they hold
+ * is merged for translation — so every bit of their formatting can be kept.
+ */
+function readRichText(
+  xml: string,
+  innerStart: number,
+  innerEnd: number,
+): SharedStringEntry {
+  const inner = xml.slice(innerStart, innerEnd)
+  const runs: RichTextRun[] = []
+  let text = ''
+  let cursor = 0
+  // Lazy attribute matcher, so a self-closing `<r/>` leaves `/` for group 2
+  // instead of swallowing it into the attributes.
+  const runRe = /<r(\s[^>]*?)?(\/)?>/g
+  let match: RegExpExecArray | null
+  while ((match = runRe.exec(inner))) {
+    // Anything besides whitespace between runs is an element this handler does
+    // not know how to rewrite.
+    if (inner.slice(cursor, match.index).trim()) return skippedEntry('not-simple', innerEnd)
+    const afterOpen = match.index + match[0].length
+    if (match[2] === '/') {
+      cursor = afterOpen
+      continue
+    }
+    const close = inner.indexOf('</r>', afterOpen)
+    if (close === -1) return skippedEntry('not-simple', innerEnd)
+    const run = readRun(xml, innerStart + afterOpen, innerStart + close)
+    if (!run) return skippedEntry('not-simple', innerEnd)
+    runs.push(run)
+    if (run.t) text += xmlUnescape(xml.slice(run.t.openEnd, run.t.closeStart))
+    cursor = close + '</r>'.length
+    runRe.lastIndex = cursor
+  }
+  if (inner.slice(cursor).trim()) return skippedEntry('not-simple', innerEnd)
+
+  const trimmed = text.trim()
+  if (!trimmed) return skippedEntry('empty', innerEnd)
+  if (isUrlOrEmail(trimmed)) return skippedEntry('url-or-email', innerEnd)
+  return { text, skip: null, t: null, runs, siEnd: innerEnd }
 }
 
 /** Every `<c r="A1" t="s"><v>N</v></c>` of one worksheet, in document order. */
@@ -376,6 +479,57 @@ function cellStyleIndex(openTag: string): number {
   return match ? Number(match[1]) : 0
 }
 
+/**
+ * A `<t>` holding `text`. `xml:space="preserve"` is always set: a rich-text
+ * translation starts with its own newline, and a leading or trailing space would
+ * otherwise be trimmed.
+ */
+function textElement(text: string): string {
+  return `<t xml:space="preserve">${xmlEscape(text)}</t>`
+}
+
+/**
+ * The splices that write `translation` into a rich-text entry's runs.
+ *
+ * Bilingual appends one run before `</si>` and leaves every source run exactly
+ * as it was, so the formatting a link or a heading run carries is kept byte for
+ * byte. Target-only rewrites the first run's text and empties the rest: their
+ * elements (and `<rPr>`) stay, because a `<r>` without children is not
+ * something Excel expects.
+ */
+function richTextSplices(
+  entry: SharedStringEntry,
+  translation: string,
+  bilingual: boolean,
+): Splice[] {
+  const runs = entry.runs ?? []
+  if (bilingual) {
+    // The last run carries the body style; an earlier one may be the link. A
+    // run without `<rPr>` contributes no `<rPr>` at all, rather than one that
+    // would override the cell's own font.
+    const last = runs[runs.length - 1]
+    return [
+      {
+        start: entry.siEnd,
+        end: entry.siEnd,
+        text: `<r>${last?.rPr ?? ''}${textElement(`\n${translation}`)}</r>`,
+      },
+    ]
+  }
+  const splices: Splice[] = []
+  const target = runs.find((run) => run.t)
+  if (!target?.t) return splices
+  const first = target.t
+  splices.push({ start: first.openStart, end: first.closeEnd, text: textElement(translation) })
+  for (const run of runs) {
+    const t = run.t
+    // A self-closing `<t/>` has nothing to empty.
+    if (!t || t === first || t.closeStart === t.openEnd) continue
+    splices.push({ start: t.openEnd, end: t.closeStart, text: '' })
+  }
+  return splices
+}
+
 export function parseXlsx(data: Uint8Array): ParsedXlsx {
   const files = unzipSync(data)
   const sheetPaths = Object.keys(files).filter((p) => WORKSHEET_PATH_RE.test(p)).sort()
@@ -425,19 +579,25 @@ export function parseXlsx(data: Uint8Array): ParsedXlsx {
         const entry = entries[siIndex]
         const translation = translations[position]?.trim()
         if (!translation || translation === entry.text.trim()) return
-        changed.set(siIndex, bilingual ? `${entry.text}\n${translation}` : translation)
+        changed.set(siIndex, translation)
       })
       // Nothing to write: hand back the original bytes so an untouched
       // workbook cannot drift (and so a not-yet-translated file still opens).
       if (changed.size === 0) return data
 
       const sstSplices: Splice[] = []
-      for (const [siIndex, text] of changed) {
-        const t = entries[siIndex].t
+      for (const [siIndex, translation] of changed) {
+        const entry = entries[siIndex]
+        if (entry.runs) {
+          sstSplices.push(...richTextSplices(entry, translation, bilingual))
+          continue
+        }
+        const t = entry.t
         if (!t) continue
+        const text = bilingual ? `${entry.text}\n${translation}` : translation
         sstSplices.push({
           start: t.openStart,
-          end: t.closeStart + '</t>'.length,
+          end: t.closeEnd,
           text: `${withPreserve(t.openTag, /\n|^\s|\s$/.test(text))}${xmlEscape(text)}</t>`,
         })
       }

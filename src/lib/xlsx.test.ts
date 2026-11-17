@@ -148,6 +148,68 @@ const WORKBOOK_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 
 const TRANSLATIONS = ['译文一', '译文二', '译文三', '译文四']
 
+// A workbook shaped like a sheet exported from a tracker: every value of column
+// A is prose, and four of them are stored as rich-text runs — a sentence with a
+// blue underlined title in the middle, a first run without any `<rPr>`, a
+// self-closing `<t/>`, and a last run without `<rPr>` whose text needs escaping.
+// Column B is an enumeration. The runs are kept apart from the workbooks above
+// so their formatting cannot change the column verdicts those tests depend on.
+const RICH_PROSE = [
+  'Notes from the weekly sync',
+  'Watch The Horribly Slow Murderer before Friday',
+  'Ask the vendor for a revised quote',
+  'Follow up on the shipping delay',
+  'Draft copy for the launch announcement',
+  'A & B < C tail',
+]
+
+/** Index of each value in the rich fixture's shared string table. */
+const RICH_SI = {
+  plain0: 0,
+  runs: 1,
+  plain2: 2,
+  firstRunWithoutRPr: 3,
+  selfClosing: 4,
+  escaped: 5,
+  enumValue: 6,
+}
+
+// Run properties in the shapes a real sheet writes: body text and a blue
+// underlined link (the link Excel writes for a cell that also has a
+// `<hyperlink>`), plus two bare ones.
+const BODY_RPR = '<rPr><rFont val="Public Sans"/><sz val="14.0"/></rPr>'
+const LINK_RPR =
+  '<rPr><rFont val="Public Sans"/><color rgb="FF1155CC"/><sz val="14.0"/><u/></rPr>'
+const BOLD_RPR = '<rPr><b/></rPr>'
+const ITALIC_RPR = '<rPr><i/></rPr>'
+
+const RICH_SHARED_STRINGS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="12" uniqueCount="7">
+  <si><t>${RICH_PROSE[0]}</t></si>
+  <si><r>${BODY_RPR}<t xml:space="preserve">Watch </t></r><r>${LINK_RPR}<t>The Horribly Slow Murderer</t></r><r>${BODY_RPR}<t xml:space="preserve"> before Friday</t></r></si>
+  <si><t>${RICH_PROSE[2]}</t></si>
+  <si><r><t xml:space="preserve">Follow up </t></r><r>${BOLD_RPR}<t>on the shipping delay</t></r></si>
+  <si><r>${ITALIC_RPR}<t/></r><r>${ITALIC_RPR}<t>${RICH_PROSE[4]}</t></r></si>
+  <si><r>${BOLD_RPR}<t>A &amp; B &lt; C</t></r><r><t xml:space="preserve"> tail</t></r></si>
+  <si><t>${ENUM}</t></si>
+</sst>
+`
+
+const RICH_SHEET = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="1"><c r="A1" t="s"><v>${RICH_SI.plain0}</v></c><c r="B1" t="s"><v>${RICH_SI.enumValue}</v></c></row>
+    <row r="2"><c r="A2" s="1" t="s"><v>${RICH_SI.runs}</v></c><c r="B2" t="s"><v>${RICH_SI.enumValue}</v></c></row>
+    <row r="3"><c r="A3" t="s"><v>${RICH_SI.plain2}</v></c><c r="B3" t="s"><v>${RICH_SI.enumValue}</v></c></row>
+    <row r="4"><c r="A4" t="s"><v>${RICH_SI.firstRunWithoutRPr}</v></c></row>
+    <row r="5"><c r="A5" t="s"><v>${RICH_SI.selfClosing}</v></c></row>
+    <row r="6"><c r="A6" t="s"><v>${RICH_SI.escaped}</v></c></row>
+  </sheetData>
+</worksheet>
+`
+
+const RICH_TRANSLATIONS = ['译文一', '译文二', '译文三', '译文四', '译文五', '译文六']
+
 function buildWorkbook(): Uint8Array<ArrayBuffer> {
   const files: Record<string, Uint8Array> = {
     '[Content_Types].xml': strToU8(CONTENT_TYPES),
@@ -170,6 +232,18 @@ function buildStyledWorkbook(): Uint8Array<ArrayBuffer> {
     'xl/sharedStrings.xml': strToU8(STYLED_SHARED_STRINGS),
     'xl/styles.xml': strToU8(STYLED_STYLES),
     'xl/worksheets/sheet1.xml': strToU8(STYLED_SHEET),
+  }
+  return new Uint8Array(zipSync(files))
+}
+
+function buildRichWorkbook(): Uint8Array<ArrayBuffer> {
+  const files: Record<string, Uint8Array> = {
+    '[Content_Types].xml': strToU8(CONTENT_TYPES),
+    'xl/workbook.xml': strToU8(WORKBOOK),
+    'xl/_rels/workbook.xml.rels': strToU8(WORKBOOK_RELS),
+    'xl/sharedStrings.xml': strToU8(RICH_SHARED_STRINGS),
+    'xl/styles.xml': strToU8(STYLES),
+    'xl/worksheets/sheet1.xml': strToU8(RICH_SHEET),
   }
   return new Uint8Array(zipSync(files))
 }
@@ -201,6 +275,28 @@ function sharedStringElements(data: Uint8Array): string[] {
   return Array.from(
     parseXml(readPart(data, 'xl/sharedStrings.xml')).getElementsByTagName('si'),
   ).map((si) => serializer.serializeToString(si))
+}
+
+/** The raw `<si>` at `index` of a shared string table, tags included. */
+function sharedStringXml(xml: string, index: number): string {
+  const si = (xml.match(/<si>[\s\S]*?<\/si>/g) ?? [])[index]
+  if (si === undefined) throw new Error(`no <si> at ${index}`)
+  return si
+}
+
+/** The `<r>` elements of a `<si>`, in document order, verbatim. */
+function runElements(si: string): string[] {
+  return si.match(/<r>[\s\S]*?<\/r>/g) ?? []
+}
+
+/** The `<rPr>…</rPr>` of a run (the run string starts with `<r>`), or ''. */
+function runProperties(run: string): string {
+  return /<rPr>[\s\S]*?<\/rPr>/.exec(run)?.[0] ?? ''
+}
+
+/** The `<si>` at `index` of a rebuilt workbook's shared string table. */
+function rebuiltSharedString(data: Uint8Array, index: number): string {
+  return sharedStringXml(readPart(data, 'xl/sharedStrings.xml'), index)
 }
 
 function rebuild(
@@ -262,7 +358,7 @@ describe('parseXlsx', () => {
     expect(sharedStringTexts(output)[SI.enumValue]).toBe(ENUM)
   })
 
-  it('skips shared strings that hold rich-text runs', () => {
+  it('leaves a rich-text string in an untranslated column alone', () => {
     const doc = parseXlsx(buildWorkbook())
     expect(doc.segments).not.toContain(RICH_TEXT)
     const output = doc.rebuild(TRANSLATIONS, true)
@@ -471,5 +567,116 @@ describe('parseXlsx', () => {
     const output = doc.rebuild(TRANSLATIONS, false)
     expect(output).toBeInstanceOf(Uint8Array)
     expect(sharedStringTexts(output as Uint8Array)[SI.prose0]).toBe(TRANSLATIONS[0])
+  })
+})
+
+describe('parseXlsx with rich-text runs', () => {
+  it('translates shared strings that hold rich-text runs', () => {
+    const doc = parseXlsx(buildRichWorkbook())
+    // The runs of one `<si>` are merged in document order, and the merged text
+    // is what the column heuristic and the request see.
+    expect(doc.segments).toEqual(RICH_PROSE)
+  })
+
+  it('appends one run for the translation and keeps every source run when bilingual', () => {
+    const source = sharedStringXml(RICH_SHARED_STRINGS, RICH_SI.runs)
+    const after = rebuiltSharedString(
+      rebuild(buildRichWorkbook(), RICH_TRANSLATIONS, true),
+      RICH_SI.runs,
+    )
+
+    const before = runElements(source)
+    const written = runElements(after)
+    expect(written).toHaveLength(before.length + 1)
+    // Not a character of the source runs moved, so the link's blue underline
+    // and the body font are exactly what Excel wrote.
+    expect(written.slice(0, -1)).toEqual(before)
+    expect(before[1]).toContain('rgb="FF1155CC"')
+
+    // The new run is the last child of the `<si>`, copies the last run's
+    // properties (the body style, not the link) and holds the translation
+    // below the source.
+    expect(written[written.length - 1]).toBe(
+      `<r>${runProperties(before[before.length - 1])}<t xml:space="preserve">\n${RICH_TRANSLATIONS[1]}</t></r>`,
+    )
+  })
+
+  it('writes the translation into the first run and empties the rest when not bilingual', () => {
+    const after = rebuiltSharedString(
+      rebuild(buildRichWorkbook(), RICH_TRANSLATIONS, false),
+      RICH_SI.runs,
+    )
+    expect(after).toBe(
+      `<si><r>${BODY_RPR}<t xml:space="preserve">${RICH_TRANSLATIONS[1]}</t></r>` +
+        `<r>${LINK_RPR}<t></t></r>` +
+        `<r>${BODY_RPR}<t xml:space="preserve"></t></r></si>`,
+    )
+    // The empties keep their elements and their formatting: a run stripped of
+    // its children is not something Excel expects.
+    expect(runElements(after)).toHaveLength(3)
+    expect(after.match(/<rPr>/g)).toHaveLength(3)
+  })
+
+  it('writes into a first run that carries no rPr', () => {
+    const after = rebuiltSharedString(
+      rebuild(buildRichWorkbook(), RICH_TRANSLATIONS, false),
+      RICH_SI.firstRunWithoutRPr,
+    )
+    expect(after).toBe(
+      `<si><r><t xml:space="preserve">${RICH_TRANSLATIONS[3]}</t></r>` +
+        `<r>${BOLD_RPR}<t></t></r></si>`,
+    )
+  })
+
+  it('writes into a self-closing <t/>', () => {
+    const after = rebuiltSharedString(
+      rebuild(buildRichWorkbook(), RICH_TRANSLATIONS, false),
+      RICH_SI.selfClosing,
+    )
+    expect(after).toBe(
+      `<si><r>${ITALIC_RPR}<t xml:space="preserve">${RICH_TRANSLATIONS[4]}</t></r>` +
+        `<r>${ITALIC_RPR}<t></t></r></si>`,
+    )
+  })
+
+  it('omits the copied rPr when the last run has none and escapes the translation', () => {
+    const translations = [...RICH_TRANSLATIONS.slice(0, 5), 'A & B < C 的译文']
+    const after = rebuiltSharedString(
+      rebuild(buildRichWorkbook(), translations, true),
+      RICH_SI.escaped,
+    )
+    const written = runElements(after)
+    expect(runProperties(written[written.length - 1])).toBe('')
+    expect(after).toContain('\nA &amp; B &lt; C 的译文</t></r></si>')
+    // The source runs keep the `&amp;` and `&lt;` they were written with.
+    expect(written.slice(0, -1)).toEqual(
+      runElements(sharedStringXml(RICH_SHARED_STRINGS, RICH_SI.escaped)),
+    )
+  })
+
+  it('derives a wrap style for the cell that shows a rich-text string', () => {
+    const output = rebuild(buildRichWorkbook(), RICH_TRANSLATIONS, false)
+    expect(readPart(output, 'xl/styles.xml')).toContain('<cellXfs count="4">')
+
+    // A2 holds the rich string and already had a format: its `s` is replaced
+    // with a wrapped copy of that format, not with the sheet's first one.
+    expect(cellStyles(output).get('A2')).toBe('3')
+    const derived = styleOfCell(output, 'A2')
+    expect(derived.getAttribute('numFmtId')).toBe('164')
+    expect(derived.getAttribute('applyAlignment')).toBe('1')
+    expect(alignmentOf(derived).getAttribute('wrapText')).toBe('1')
+    expect(alignmentOf(derived).getAttribute('vertical')).toBe('top')
+
+    // The enumeration column keeps its own format.
+    expect(cellStyles(output).get('B1')).toBeNull()
+  })
+
+  it('rebuilds the same bytes on every call', () => {
+    const data = buildRichWorkbook()
+    const doc = parseXlsx(data)
+    const first = doc.rebuild(RICH_TRANSLATIONS, true)
+    expect(Array.from(doc.rebuild(RICH_TRANSLATIONS, true))).toEqual(Array.from(first))
+    // The source bytes were left alone, so a later download starts from them.
+    expect(doc.rebuild([], true)).toBe(data)
   })
 })
