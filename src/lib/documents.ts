@@ -3,6 +3,7 @@
 // to know the specifics of any one format.
 
 import { strToU8 } from 'fflate'
+import { parseDocx } from './docx'
 import { parseEpub } from './epub'
 import { parseHtml, applyTranslations } from './html'
 import { parseSubtitle } from './subtitle'
@@ -31,6 +32,7 @@ export type DocumentKind =
   | 'text'
   | 'subtitle'
   | 'spreadsheet'
+  | 'docx'
 
 export interface DocumentHandler {
   kind: DocumentKind
@@ -195,7 +197,25 @@ const spreadsheetHandler: DocumentHandler = {
   },
 }
 
+const docxHandler: DocumentHandler = {
+  kind: 'docx',
+  // No .docm: re-zipping drops the VBA signature and silently yields a corrupt
+  // macro document.
+  extensions: ['.docx'],
+  async parse(file) {
+    const data = new Uint8Array(await file.arrayBuffer())
+    const parsed = parseDocx(data)
+    return {
+      segments: parsed.segments,
+      mimeType:
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      rebuild: (translations, bilingual) => parsed.rebuild(translations, bilingual),
+    }
+  },
+}
+
 const HANDLERS: DocumentHandler[] = [
+  docxHandler,
   epubHandler,
   htmlHandler,
   markdownHandler,

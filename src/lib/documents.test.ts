@@ -14,6 +14,20 @@ import {
 // one translatable piece.
 const LONG_RUN = 'word '.repeat(5000)
 
+function docxFile(paragraph: string): File {
+  const files: Record<string, Uint8Array> = {
+    '[Content_Types].xml': strToU8(
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="xml" ContentType="application/xml"/></Types>`,
+    ),
+    'word/document.xml': strToU8(
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t xml:space="preserve">${paragraph}</w:t></w:r></w:p></w:body></w:document>`,
+    ),
+  }
+  return new File([new Uint8Array(zipSync(files))], 'long.docx')
+}
+
 function epubFile(paragraph: string): File {
   const files: Record<string, Uint8Array> = {
     mimetype: strToU8('application/epub+zip'),
@@ -50,6 +64,7 @@ const UNSplitInputs: [string, () => File][] = [
   ['markdown', () => new File([LONG_RUN], 'long.md')],
   ['subtitle', () => new File([`1\n00:00:01,000 --> 00:00:04,000\n${LONG_RUN}\n`], 'long.srt')],
   ['epub', () => epubFile(LONG_RUN)],
+  ['docx', () => docxFile(LONG_RUN)],
 ]
 
 const batchChars = (batch: Batch) =>

@@ -11,6 +11,13 @@
 // module does not rewrite is copied into the new zip byte for byte.
 
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
+import {
+  applySplices,
+  withPreserve,
+  xmlEscape,
+  xmlUnescape,
+  type Splice,
+} from './ooxml'
 
 export interface ParsedXlsx {
   segments: string[]
@@ -30,12 +37,6 @@ type SkipReason =
   | 'url-or-email'
   | 'column'
   | 'unreferenced'
-
-interface Splice {
-  start: number
-  end: number
-  text: string
-}
 
 interface TextElement {
   /** Offsets of `<t ...>` and of the `</t>` that closes it. */
@@ -60,48 +61,6 @@ interface StringCell {
   openStart: number
   openEnd: number
   openTag: string
-}
-
-function applySplices(text: string, splices: Splice[]): string {
-  let out = ''
-  let cursor = 0
-  for (const splice of [...splices].sort((a, b) => a.start - b.start)) {
-    out += text.slice(cursor, splice.start) + splice.text
-    cursor = splice.end
-  }
-  return out + text.slice(cursor)
-}
-
-function xmlUnescape(text: string): string {
-  return text.replace(
-    /&(#x[0-9a-fA-F]+|#[0-9]+|amp|lt|gt|quot|apos);/g,
-    (match, entity: string) => {
-      switch (entity) {
-        case 'amp':
-          return '&'
-        case 'lt':
-          return '<'
-        case 'gt':
-          return '>'
-        case 'quot':
-          return '"'
-        case 'apos':
-          return "'"
-        default: {
-          const code =
-            entity[1] === 'x'
-              ? parseInt(entity.slice(2), 16)
-              : parseInt(entity.slice(1), 10)
-          return code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match
-        }
-      }
-    },
-  )
-}
-
-/** `&` first: escaping it last would turn the `&` of `&amp;` into `&amp;amp;`. */
-function xmlEscape(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
 const URL_RE = /^https?:\/\//i
@@ -290,12 +249,6 @@ function report(
     `| translatable ${translatableCount}/${entries.length} si`,
     `| skipped ${JSON.stringify(skipped)}`,
   )
-}
-
-function withPreserve(openTag: string, preserve: boolean): string {
-  const attrs = openTag.slice(2, -1)
-  if (!preserve || attrs.includes('xml:space=')) return openTag
-  return `<t xml:space="preserve"${attrs}>`
 }
 
 function withCellStyle(openTag: string, styleIndex: number): string {
